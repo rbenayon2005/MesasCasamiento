@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Organizador de Mesas</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Organizador de Mesas - Ariel Casamiento</h1>
+      <div class="actions">
+        <label class="file-input">
+          <input id="excelFile" type="file" accept=".xlsx,.xls" />
+          <span>Cargar Excel</span>
+        </label>
+        <label class="file-input">
+          <input id="csvFile" type="file" accept=".csv" />
+          <span>Cargar CSV asignacion</span>
+        </label>
+        <button id="loadCurrentBtn">Usar asignacion actual</button>
+        <button id="newLayoutBtn">Nuevo layout</button>
+        <button id="addOneTableBtn">+1 mesa</button>
+        <button id="exportBtn">Exportar CSV</button>
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <div class="config">
+        <h2>Layout nuevo</h2>
+        <label>Mesa 1 fija: 20 personas</label>
+        <label>Mesas hombres x10: <input id="menTables" type="number" min="0" value="0" /></label>
+        <label>Mesas mujeres x10: <input id="womenTables" type="number" min="0" value="0" /></label>
+        <label>Mesas mixtas x10: <input id="mixedTables" type="number" min="0" value="19" /></label>
+      </div>
+      <div class="filters">
+        <h2>Filtros</h2>
+        <label>Buscar: <input id="searchInput" type="text" placeholder="Nombre o apellido" /></label>
+        <label>
+          Genero:
+          <select id="genderFilter">
+            <option value="all">Todos</option>
+            <option value="H">Hombres</option>
+            <option value="M">Mujeres</option>
+          </select>
+        </label>
+        <label><input id="onlyConfirmed" type="checkbox" checked /> Solo confirmados</label>
+      </div>
+      <div class="stats" id="stats"></div>
+    </section>
+
+    <main class="board">
+      <aside class="panel">
+        <h3>Sin asignar</h3>
+        <div id="unassignedList" class="dropzone guest-list" data-table-id=""></div>
+      </aside>
+      <section class="tables-wrap">
+        <div id="tablesGrid" class="tables-grid"></div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast hidden"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
