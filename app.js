@@ -409,10 +409,46 @@ function exportCsv() {
   URL.revokeObjectURL(a.href);
 }
 
+function normalizeHeaderKey(key) {
+  return normalize(key)
+    .replace(/^\ufeff/, "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function getRowValue(row, aliases) {
+  const normalized = new Map(
+    Object.entries(row).map(([k, v]) => [normalizeHeaderKey(k), v]),
+  );
+  for (const alias of aliases) {
+    if (normalized.has(alias)) return normalized.get(alias);
+  }
+  return "";
+}
+
+function readAssignmentRows(text) {
+  const parseWith = (options = {}) => {
+    const wb = XLSX.read(text, { type: "string", ...options });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(ws, { defval: "" });
+  };
+
+  const rows = parseWith();
+  if (!rows.length) return rows;
+
+  const firstKeys = Object.keys(rows[0]);
+  if (firstKeys.length === 1 && /[;\t]/.test(firstKeys[0])) {
+    if (firstKeys[0].includes(";")) return parseWith({ FS: ";" });
+    if (firstKeys[0].includes("\t")) return parseWith({ FS: "\t" });
+  }
+
+  return rows;
+}
+
 function importAssignmentCsv(text) {
-  const wb = XLSX.read(text, { type: "string" });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+  const rows = readAssignmentRows(text);
   if (!rows.length) throw new Error("CSV vacio o invalido.");
   if (!state.guests.length) throw new Error("Primero carga el Excel.");
 
@@ -434,12 +470,12 @@ function importAssignmentCsv(text) {
   const mesaDefs = new Map();
   const usedTableNumbers = new Set();
   rows.forEach((row) => {
-    const tipo = normalize(row.TipoRegistro || row.tipo || "");
-    const genero = normalize(row.Genero || row.genero || "").toUpperCase();
-    const nombre = normalize(row.Nombre || row.nombre || "");
-    const fila = Number(row["Fila Excel"] || row.fila_excel || row.Fila || "");
-    const mesa = Number(row.Mesa || row.mesa || "");
-    const capacidad = Number(row.Capacidad || row.capacidad || "");
+    const tipo = normalize(getRowValue(row, ["tiporegistro", "tipo"]));
+    const genero = normalize(getRowValue(row, ["genero"])).toUpperCase();
+    const nombre = normalize(getRowValue(row, ["nombre"]));
+    const fila = Number(getRowValue(row, ["filaexcel", "fila"]));
+    const mesa = Number(getRowValue(row, ["mesa"]));
+    const capacidad = Number(getRowValue(row, ["capacidad"]));
 
     if (tipo === "MESA") {
       if (Number.isFinite(mesa) && mesa > 0) {
@@ -495,6 +531,8 @@ refs.fileInput.addEventListener("change", async (e) => {
     render();
   } catch (err) {
     showToast(err.message || "Error leyendo Excel");
+  } finally {
+    e.target.value = "";
   }
 });
 
@@ -506,6 +544,8 @@ refs.csvInput.addEventListener("change", async (e) => {
     importAssignmentCsv(text);
   } catch (err) {
     showToast(err.message || "Error leyendo CSV");
+  } finally {
+    e.target.value = "";
   }
 });
 
