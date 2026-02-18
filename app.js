@@ -447,10 +447,55 @@ function readAssignmentRows(text) {
   return rows;
 }
 
+function toNumberOrNull(value) {
+  const raw = normalize(value).replace(",", ".");
+  if (!raw) return null;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : null;
+}
+
+function normalizeGender(value) {
+  const raw = normalize(value).toLowerCase();
+  if (!raw) return "";
+  if (raw === "h" || raw.startsWith("hom") || raw === "male") return "H";
+  if (raw === "m" || raw === "f" || raw.startsWith("muj") || raw.startsWith("fem")) return "M";
+  return "";
+}
+
+function isConfirmedValue(value) {
+  const raw = normalize(value).toLowerCase();
+  if (!raw) return false;
+  return ["ok", "si", "sí", "true", "1", "x", "confirmado"].includes(raw);
+}
+
+function bootstrapGuestsFromAssignmentRows(rows) {
+  state.guests = [];
+  rows.forEach((row) => {
+    const tipo = normalize(getRowValue(row, ["tiporegistro", "tipo"])).toUpperCase();
+    if (tipo && tipo !== "INVITADO") return;
+    const genero = normalizeGender(getRowValue(row, ["genero"]));
+    const nombre = normalize(getRowValue(row, ["nombre"]));
+    if (!nombre || !genero) return;
+
+    addGuest({
+      name: nombre,
+      gender: genero,
+      confirmed: isConfirmedValue(getRowValue(row, ["confirmado"])),
+      sourceRow: toNumberOrNull(getRowValue(row, ["filaexcel", "fila"])),
+      initialTable: null,
+    });
+  });
+}
+
 function importAssignmentCsv(text) {
   const rows = readAssignmentRows(text);
   if (!rows.length) throw new Error("CSV vacio o invalido.");
-  if (!state.guests.length) throw new Error("Primero carga el Excel.");
+  if (!state.guests.length) {
+    bootstrapGuestsFromAssignmentRows(rows);
+    if (!state.guests.length) {
+      throw new Error("CSV invalido: no se pudieron leer invitados.");
+    }
+  }
 
   state.guests.forEach((g) => {
     g.tableId = null;
@@ -460,7 +505,9 @@ function importAssignmentCsv(text) {
   const byRowGender = new Map();
   const byNameGender = new Map();
   state.guests.forEach((g) => {
-    byRowGender.set(`${g.sourceRow}|${g.gender}`, g);
+    if (Number.isFinite(g.sourceRow)) {
+      byRowGender.set(`${g.sourceRow}|${g.gender}`, g);
+    }
     const key = `${g.name.toLowerCase()}|${g.gender}`;
     if (!byNameGender.has(key)) byNameGender.set(key, []);
     byNameGender.get(key).push(g);
@@ -470,25 +517,25 @@ function importAssignmentCsv(text) {
   const mesaDefs = new Map();
   const usedTableNumbers = new Set();
   rows.forEach((row) => {
-    const tipo = normalize(getRowValue(row, ["tiporegistro", "tipo"]));
-    const genero = normalize(getRowValue(row, ["genero"])).toUpperCase();
+    const tipo = normalize(getRowValue(row, ["tiporegistro", "tipo"])).toUpperCase();
+    const genero = normalizeGender(getRowValue(row, ["genero"]));
     const nombre = normalize(getRowValue(row, ["nombre"]));
-    const fila = Number(getRowValue(row, ["filaexcel", "fila"]));
-    const mesa = Number(getRowValue(row, ["mesa"]));
-    const capacidad = Number(getRowValue(row, ["capacidad"]));
+    const fila = toNumberOrNull(getRowValue(row, ["filaexcel", "fila"]));
+    const mesa = toNumberOrNull(getRowValue(row, ["mesa"]));
+    const capacidad = toNumberOrNull(getRowValue(row, ["capacidad"]));
 
     if (tipo === "MESA") {
-      if (Number.isFinite(mesa) && mesa > 0) {
-        mesaDefs.set(mesa, Number.isFinite(capacidad) ? capacidad : mesa === 1 ? 20 : 10);
+      if (mesa !== null && mesa > 0) {
+        mesaDefs.set(mesa, capacidad !== null ? capacidad : mesa === 1 ? 20 : 10);
       }
       return;
     }
 
-    if (!(Number.isFinite(mesa) && mesa > 0) && !Number.isFinite(fila) && !nombre) return;
+    if (!(mesa !== null && mesa > 0) && fila === null && !nombre) return;
     if (!["H", "M"].includes(genero)) return;
 
     let guest = null;
-    if (Number.isFinite(fila)) {
+    if (fila !== null) {
       guest = byRowGender.get(`${fila}|${genero}`) || null;
     }
     if (!guest && nombre) {
@@ -498,7 +545,7 @@ function importAssignmentCsv(text) {
     }
     if (!guest) return;
 
-    if (Number.isFinite(mesa) && mesa > 0) {
+    if (mesa !== null && mesa > 0) {
       guest.tableId = `t-${mesa}`;
       usedTableNumbers.add(mesa);
     } else {
