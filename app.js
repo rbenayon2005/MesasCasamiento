@@ -225,6 +225,15 @@ function moveGuest(guestId, tableId) {
   render();
 }
 
+function deleteGuest(guestId) {
+  const before = state.guests.length;
+  state.guests = state.guests.filter((g) => g.id !== guestId);
+  if (state.guests.length !== before) {
+    showToast("Invitado descartado.");
+    render();
+  }
+}
+
 function filteredGuests() {
   return state.guests.filter((g) => {
     if (state.filter.onlyConfirmed && !g.confirmed) return false;
@@ -237,12 +246,20 @@ function filteredGuests() {
   });
 }
 
-function guestCard(guest) {
+function guestCard(guest, options = {}) {
+  const { allowDelete = false } = options;
   const el = document.createElement("div");
   el.className = `guest ${guest.gender === "H" ? "male" : "female"}`;
   el.draggable = true;
   el.dataset.guestId = guest.id;
-  el.innerHTML = `<strong>${guest.name || "(sin nombre)"}</strong><br><small>${guest.gender === "H" ? "Hombre" : "Mujer"}${guest.confirmed ? "" : " - no confirmado"}</small>`;
+  const meta = `${guest.gender === "H" ? "Hombre" : "Mujer"}${guest.confirmed ? "" : " - no confirmado"}`;
+  el.innerHTML = `
+    <div class="guest-head">
+      <strong>${guest.name || "(sin nombre)"}</strong>
+      ${allowDelete ? '<button class="guest-remove" type="button" aria-label="Descartar invitado" title="Descartar invitado">🗑</button>' : ""}
+    </div>
+    <small>${meta}</small>
+  `;
   el.addEventListener("dragstart", () => {
     state.dragGuestId = guest.id;
     state.dragType = "guest";
@@ -251,6 +268,18 @@ function guestCard(guest) {
     state.dragGuestId = null;
     state.dragType = null;
   });
+  if (allowDelete) {
+    const removeBtn = el.querySelector(".guest-remove");
+    removeBtn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    removeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteGuest(guest.id);
+    });
+  }
   return el;
 }
 
@@ -331,7 +360,7 @@ function renderUnassigned(visibleGuests) {
   refs.unassignedList.innerHTML = "";
   const list = visibleGuests.filter((g) => !g.tableId);
   list.sort((a, b) => a.name.localeCompare(b.name, "es"));
-  list.forEach((g) => refs.unassignedList.appendChild(guestCard(g)));
+  list.forEach((g) => refs.unassignedList.appendChild(guestCard(g, { allowDelete: true })));
 }
 
 function renderTables(visibleGuests) {

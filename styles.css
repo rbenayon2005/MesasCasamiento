@@ -233,6 +233,31 @@ select {
   font-size: 0.88rem;
 }
 
+.guest-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.guest-remove {
+  flex: 0 0 auto;
+  border: 1px solid #d9d9d9;
+  background: #fafafa;
+  color: #666;
+  border-radius: 6px;
+  padding: 1px 5px;
+  font-size: 0.72rem;
+  line-height: 1.1;
+  opacity: 0.8;
+}
+
+.guest-remove:hover {
+  opacity: 1;
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
 .guest:last-child {
   margin-bottom: 0;
 }
