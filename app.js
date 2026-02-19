@@ -44,9 +44,12 @@ const refs = {
   authError: document.getElementById("authError"),
   guestModal: document.getElementById("guestModal"),
   guestForm: document.getElementById("guestForm"),
+  guestTitle: document.getElementById("guestTitle"),
   guestFirstName: document.getElementById("guestFirstName"),
   guestLastName: document.getElementById("guestLastName"),
   guestGender: document.getElementById("guestGender"),
+  guestConfirmed: document.getElementById("guestConfirmed"),
+  guestSubmit: document.getElementById("guestSubmit"),
   guestError: document.getElementById("guestError"),
   guestCancel: document.getElementById("guestCancel"),
 };
@@ -459,12 +462,27 @@ function deleteTable(tableId) {
   scheduleRemoteSave();
 }
 
-function askGuestData() {
+function splitGuestName(fullName) {
+  const parts = normalize(fullName)
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return { firstName: "", lastName: "" };
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
+}
+
+function askGuestData(initialData = null, options = {}) {
+  const { title = "Agregar invitado", submitLabel = "Agregar" } = options;
   return new Promise((resolve) => {
+    const initial = initialData || {};
+    const split = splitGuestName(initial.fullName || "");
     refs.guestError.classList.add("hidden");
-    refs.guestFirstName.value = "";
-    refs.guestLastName.value = "";
-    refs.guestGender.value = "";
+    refs.guestTitle.textContent = title;
+    refs.guestSubmit.textContent = submitLabel;
+    refs.guestFirstName.value = split.firstName || "";
+    refs.guestLastName.value = split.lastName || "";
+    refs.guestGender.value = ["H", "M"].includes(initial.gender) ? initial.gender : "";
+    refs.guestConfirmed.value = initial.confirmed ? "yes" : "no";
     refs.guestModal.classList.remove("hidden");
     refs.guestFirstName.focus();
 
@@ -484,13 +502,14 @@ function askGuestData() {
       const firstName = normalize(refs.guestFirstName.value);
       const lastName = normalize(refs.guestLastName.value);
       const gender = normalize(refs.guestGender.value).toUpperCase();
+      const confirmed = refs.guestConfirmed.value === "yes";
       if (!firstName || !lastName || !["H", "M"].includes(gender)) {
-        refs.guestError.textContent = "Completa nombre, apellido y genero.";
+        refs.guestError.textContent = "Completa nombre, apellido, genero y confirmacion.";
         refs.guestError.classList.remove("hidden");
         return;
       }
       cleanup();
-      resolve({ fullName: `${firstName} ${lastName}`.trim(), gender });
+      resolve({ fullName: `${firstName} ${lastName}`.trim(), gender, confirmed });
     };
 
     refs.guestForm.addEventListener("submit", submitHandler);
@@ -499,18 +518,39 @@ function askGuestData() {
 }
 
 async function addGuestManually() {
-  const data = await askGuestData();
+  const data = await askGuestData(
+    { confirmed: true },
+    { title: "Agregar invitado", submitLabel: "Agregar" },
+  );
   if (!data) return;
 
   state.guests.push({
     id: crypto.randomUUID(),
     name: data.fullName,
     gender: data.gender,
-    confirmed: true,
+    confirmed: data.confirmed,
     sourceRow: null,
     tableId: null,
   });
   showToast("Invitado agregado.");
+  render();
+  scheduleRemoteSave();
+}
+
+async function editGuest(guestId) {
+  const guest = state.guests.find((g) => g.id === guestId);
+  if (!guest) return;
+
+  const data = await askGuestData(
+    { fullName: guest.name, gender: guest.gender, confirmed: guest.confirmed },
+    { title: "Editar invitado", submitLabel: "Guardar" },
+  );
+  if (!data) return;
+
+  guest.name = data.fullName;
+  guest.gender = data.gender;
+  guest.confirmed = data.confirmed;
+  showToast("Invitado actualizado.");
   render();
   scheduleRemoteSave();
 }
@@ -527,16 +567,25 @@ function filteredGuests() {
 }
 
 function guestCard(guest, options = {}) {
-  const { allowDelete = false } = options;
+  const { allowDelete = false, allowEdit = true } = options;
   const el = document.createElement("div");
   el.className = `guest ${guest.gender === "H" ? "male" : "female"}`;
   el.draggable = true;
   el.dataset.guestId = guest.id;
   const meta = `${guest.gender === "H" ? "Hombre" : "Mujer"}${guest.confirmed ? "" : " - no confirmado"}`;
+  const editButton = allowEdit
+    ? '<button class="guest-edit" type="button" aria-label="Editar invitado" title="Editar invitado">Editar</button>'
+    : "";
+  const removeButton = allowDelete
+    ? '<button class="guest-remove" type="button" aria-label="Descartar invitado" title="Descartar invitado">🗑</button>'
+    : "";
   el.innerHTML = `
     <div class="guest-head">
       <strong>${guest.name || "(sin nombre)"}</strong>
-      ${allowDelete ? '<button class="guest-remove" type="button" aria-label="Descartar invitado" title="Descartar invitado">🗑</button>' : ""}
+      <div class="guest-actions">
+        ${editButton}
+        ${removeButton}
+      </div>
     </div>
     <small>${meta}</small>
   `;
@@ -548,6 +597,18 @@ function guestCard(guest, options = {}) {
     state.dragGuestId = null;
     state.dragType = null;
   });
+  if (allowEdit) {
+    const editBtn = el.querySelector(".guest-edit");
+    editBtn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    editBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      editGuest(guest.id);
+    });
+  }
   if (allowDelete) {
     const removeBtn = el.querySelector(".guest-remove");
     removeBtn.addEventListener("mousedown", (e) => {
@@ -629,11 +690,15 @@ function renderStats() {
   const unassigned = total - assigned;
   const hm = visible.filter((g) => g.gender === "H").length;
   const wm = visible.filter((g) => g.gender === "M").length;
+  const confirmed = visible.filter((g) => g.confirmed).length;
+  const unconfirmed = total - confirmed;
   refs.stats.innerHTML = [
     `<strong>Visibles:</strong> ${total}`,
     `<strong>Asignados:</strong> ${assigned}`,
     `<strong>Sin asignar:</strong> ${unassigned}`,
     `<strong>H/M:</strong> ${hm}/${wm}`,
+    `<strong>Confirmados:</strong> ${confirmed}`,
+    `<strong>Sin confirmar:</strong> ${unconfirmed}`,
   ].join("<br>");
 }
 
