@@ -442,6 +442,23 @@ function deleteGuest(guestId) {
   }
 }
 
+function deleteTable(tableId) {
+  const table = state.tables.find((t) => t.id === tableId);
+  if (!table) return;
+
+  const assignedCount = state.guests.filter((g) => g.tableId === tableId).length;
+  if (assignedCount > 0) {
+    showToast("Solo se puede borrar una mesa vacia.");
+    return;
+  }
+
+  state.tables = state.tables.filter((t) => t.id !== tableId);
+  state.tableOrder = state.tableOrder.filter((id) => id !== tableId);
+  render();
+  showToast(`${table.name} eliminada.`);
+  scheduleRemoteSave();
+}
+
 function askGuestData() {
   return new Promise((resolve) => {
     refs.guestError.classList.add("hidden");
@@ -652,13 +669,22 @@ function renderTables(visibleGuests) {
       card.innerHTML = `
         <div class="table-head">
           <strong>${table.name}</strong>
-          <span class="table-drag-handle" title="Mover mesa en el layout">Mover</span>
+          <div class="table-actions">
+            <button class="table-remove" type="button" aria-label="Eliminar mesa" title="Eliminar mesa">Eliminar</button>
+            <span class="table-drag-handle" title="Mover mesa en el layout">Mover</span>
+          </div>
           ${typePill || bigPill}
         </div>
         <div class="table-meta">${count}/${table.capacity} | H:${menCount} M:${womenCount}</div>
       `;
       const handle = card.querySelector(".table-drag-handle");
+      const removeBtn = card.querySelector(".table-remove");
       applyTableReorderBehavior(card, table.id, handle);
+      removeBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        deleteTable(table.id);
+      });
 
       const zone = document.createElement("div");
       zone.className = "guest-list dropzone";

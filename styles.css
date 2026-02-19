@@ -200,7 +200,6 @@ select {
 }
 
 .table-drag-handle {
-  margin-left: auto;
   font-size: 0.72rem;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -208,6 +207,28 @@ select {
   cursor: grab;
   color: #444;
   background: #f8f8f5;
+}
+
+.table-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.table-remove {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  border: 1px solid #e4d1d1;
+  color: #8e3030;
+  background: #fff7f7;
+}
+
+.table-remove:hover {
+  border-color: var(--bad);
+  color: var(--bad);
 }
 
 .table-card.table-drop-over {
