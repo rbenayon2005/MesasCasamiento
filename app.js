@@ -13,6 +13,13 @@ const state = {
     gender: "all",
     onlyConfirmed: true,
   },
+  remote: {
+    available: false,
+    saveTimer: null,
+    saveInFlight: false,
+    revision: 0,
+    poller: null,
+  },
 };
 
 const refs = {
@@ -33,6 +40,138 @@ const refs = {
   stats: document.getElementById("stats"),
   toast: document.getElementById("toast"),
 };
+
+async function apiRequest(path, options = {}) {
+  const response = await fetch(path, {
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `HTTP ${response.status}`);
+  }
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+  return null;
+}
+
+function serializeStateForRemote() {
+  const tables = state.tables
+    .slice()
+    .sort((a, b) => a.number - b.number)
+    .map((t) => ({
+      number: t.number,
+      name: t.name,
+      type: t.type || null,
+      capacity: t.capacity,
+    }));
+
+  const guests = state.guests.map((g) => ({
+    id: g.id,
+    name: g.name,
+    gender: g.gender,
+    confirmed: !!g.confirmed,
+    sourceRow: Number.isFinite(g.sourceRow) ? g.sourceRow : null,
+    tableId: g.tableId || null,
+  }));
+
+  return {
+    guests,
+    tables,
+    tableOrder: state.tableOrder.slice(),
+  };
+}
+
+function applyRemoteSnapshot(snapshot) {
+  if (!snapshot || !Array.isArray(snapshot.guests) || !Array.isArray(snapshot.tables)) return false;
+  state.guests = snapshot.guests.map((g) => ({
+    id: normalize(g.id) || crypto.randomUUID(),
+    name: normalize(g.name),
+    gender: normalize(g.gender).toUpperCase() === "M" ? "M" : "H",
+    confirmed: !!g.confirmed,
+    sourceRow: Number.isFinite(Number(g.sourceRow)) ? Number(g.sourceRow) : null,
+    tableId: normalize(g.tableId) || null,
+  }));
+  state.tables = snapshot.tables
+    .map((t) => ({
+      id: `t-${Number(t.number)}`,
+      number: Number(t.number),
+      name: normalize(t.name) || `Mesa ${Number(t.number)}`,
+      type: ["men", "women"].includes(t.type) ? t.type : null,
+      capacity: Number.isFinite(Number(t.capacity)) ? Number(t.capacity) : Number(t.number) === 1 ? 20 : 10,
+    }))
+    .filter((t) => Number.isFinite(t.number) && t.number > 0)
+    .sort((a, b) => a.number - b.number);
+
+  state.tableOrder = Array.isArray(snapshot.tableOrder) ? snapshot.tableOrder.map((id) => normalize(id)).filter(Boolean) : [];
+  syncTableOrder();
+  return true;
+}
+
+async function saveSnapshotNow() {
+  if (!state.remote.available || state.remote.saveInFlight) return;
+  state.remote.saveInFlight = true;
+  try {
+    const response = await apiRequest("/api/state", {
+      method: "POST",
+      body: JSON.stringify(serializeStateForRemote()),
+    });
+    if (response && Number.isFinite(Number(response.revision))) {
+      state.remote.revision = Number(response.revision);
+    }
+  } catch (err) {
+    showToast("No se pudo guardar en la nube.");
+  } finally {
+    state.remote.saveInFlight = false;
+  }
+}
+
+function scheduleRemoteSave(delayMs = 450) {
+  if (!state.remote.available) return;
+  clearTimeout(state.remote.saveTimer);
+  state.remote.saveTimer = setTimeout(() => {
+    saveSnapshotNow();
+  }, delayMs);
+}
+
+async function loadRemoteSnapshot() {
+  try {
+    const data = await apiRequest("/api/state");
+    state.remote.available = true;
+    if (Number.isFinite(Number(data?.revision))) {
+      state.remote.revision = Number(data.revision);
+    }
+    if (data && (data.guests?.length || data.tables?.length)) {
+      applyRemoteSnapshot(data);
+      showToast(`Datos cargados de la nube (${data.guests.length} invitados).`);
+    }
+    startRemotePolling();
+  } catch (_) {
+    state.remote.available = false;
+  }
+}
+
+function startRemotePolling() {
+  if (!state.remote.available || state.remote.poller) return;
+  state.remote.poller = setInterval(async () => {
+    if (state.remote.saveInFlight) return;
+    try {
+      const data = await apiRequest(`/api/state?revision=${state.remote.revision}`);
+      if (!data?.changed) return;
+      if (Number.isFinite(Number(data.revision))) {
+        state.remote.revision = Number(data.revision);
+      }
+      if (data && (Array.isArray(data.guests) || Array.isArray(data.tables))) {
+        applyRemoteSnapshot(data);
+        render();
+      }
+    } catch (_) {
+      // noop
+    }
+  }, 4000);
+}
 
 function showToast(message) {
   refs.toast.textContent = message;
@@ -223,6 +362,7 @@ function moveGuest(guestId, tableId) {
 
   guest.tableId = tableId || null;
   render();
+  scheduleRemoteSave();
 }
 
 function deleteGuest(guestId) {
@@ -231,6 +371,7 @@ function deleteGuest(guestId) {
   if (state.guests.length !== before) {
     showToast("Invitado descartado.");
     render();
+    scheduleRemoteSave();
   }
 }
 
@@ -338,6 +479,7 @@ function applyTableReorderBehavior(card, tableId, handle) {
     card.classList.remove("table-drop-over");
     moveTableBefore(state.dragTableId, tableId);
     render();
+    scheduleRemoteSave();
   });
 }
 
@@ -595,6 +737,7 @@ function importAssignmentCsv(text) {
 
   showToast(`CSV cargado: ${assignedCount} asignaciones aplicadas.`);
   render();
+  scheduleRemoteSave();
 }
 
 refs.fileInput.addEventListener("change", async (e) => {
@@ -605,6 +748,7 @@ refs.fileInput.addEventListener("change", async (e) => {
     parseWorkbook(data);
     rebuildTablesFromCurrentAssignments();
     render();
+    scheduleRemoteSave();
   } catch (err) {
     showToast(err.message || "Error leyendo Excel");
   } finally {
@@ -629,12 +773,14 @@ refs.loadCurrentBtn.addEventListener("click", () => {
   if (!state.guests.length) return showToast("Primero carga el Excel.");
   rebuildTablesFromCurrentAssignments();
   render();
+  scheduleRemoteSave();
 });
 
 refs.newLayoutBtn.addEventListener("click", () => {
   if (!state.guests.length) return showToast("Primero carga el Excel.");
   buildNewLayout();
   render();
+  scheduleRemoteSave();
 });
 
 refs.addOneTableBtn.addEventListener("click", () => {
@@ -642,6 +788,7 @@ refs.addOneTableBtn.addEventListener("click", () => {
   addMoreTables(1);
   render();
   showToast("Se agrego 1 mesa mixta de 10.");
+  scheduleRemoteSave();
 });
 
 refs.exportBtn.addEventListener("click", () => {
@@ -662,4 +809,10 @@ refs.onlyConfirmed.addEventListener("change", (e) => {
   render();
 });
 
-render();
+async function init() {
+  render();
+  await loadRemoteSnapshot();
+  render();
+}
+
+init();
