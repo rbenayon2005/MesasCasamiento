@@ -307,7 +307,7 @@ function parseWorkbook(arrayBuffer) {
     const hLast = normalize(ws[`B${row}`]?.v);
     const mName = normalize(ws[`C${row}`]?.v);
     const mLast = normalize(ws[`D${row}`]?.v);
-    const confirmed = normalize(ws[`F${row}`]?.v).toLowerCase() === "ok";
+    const confirmed = isConfirmedValue(ws[`F${row}`]?.v);
     const hTable = ws[`H${row}`]?.v;
     const mTable = ws[`I${row}`]?.v;
 
