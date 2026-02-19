@@ -2,6 +2,14 @@
 
 App web para organizar invitados y mesas de un casamiento.
 
+## Regla del proyecto
+
+- No usar `alert`, `prompt` ni `confirm`.
+- Todas las interacciones con usuario deben ser via modal.
+- Aplica especialmente a:
+  - Login (usuario/password)
+  - Alta de invitado (nombre, apellido y genero por selector `Hombre`/`Mujer`)
+
 ## Produccion
 
 - URL: `https://mesascasamiento.pages.dev`

@@ -42,6 +42,13 @@ const refs = {
   authUser: document.getElementById("authUser"),
   authPass: document.getElementById("authPass"),
   authError: document.getElementById("authError"),
+  guestModal: document.getElementById("guestModal"),
+  guestForm: document.getElementById("guestForm"),
+  guestFirstName: document.getElementById("guestFirstName"),
+  guestLastName: document.getElementById("guestLastName"),
+  guestGender: document.getElementById("guestGender"),
+  guestError: document.getElementById("guestError"),
+  guestCancel: document.getElementById("guestCancel"),
 };
 
 async function apiRequest(path, options = {}) {
@@ -435,24 +442,53 @@ function deleteGuest(guestId) {
   }
 }
 
-function addGuestManually() {
-  const firstName = normalize(window.prompt("Nombre del invitado:"));
-  if (!firstName) return;
-  const lastName = normalize(window.prompt("Apellido del invitado:"));
-  if (!lastName) return;
-  const fullName = `${firstName} ${lastName}`.trim();
+function askGuestData() {
+  return new Promise((resolve) => {
+    refs.guestError.classList.add("hidden");
+    refs.guestFirstName.value = "";
+    refs.guestLastName.value = "";
+    refs.guestGender.value = "";
+    refs.guestModal.classList.remove("hidden");
+    refs.guestFirstName.focus();
 
-  const genderInput = normalize(window.prompt("Genero (Hombre/Mujer):")).toLowerCase();
-  const gender = genderInput.startsWith("muj") || genderInput === "m" ? "M" : genderInput.startsWith("hom") || genderInput === "h" ? "H" : "";
-  if (!gender) {
-    showToast("Genero invalido. Usa Hombre o Mujer.");
-    return;
-  }
+    const cleanup = () => {
+      refs.guestModal.classList.add("hidden");
+      refs.guestForm.removeEventListener("submit", submitHandler);
+      refs.guestCancel.removeEventListener("click", cancelHandler);
+    };
+
+    const cancelHandler = () => {
+      cleanup();
+      resolve(null);
+    };
+
+    const submitHandler = (e) => {
+      e.preventDefault();
+      const firstName = normalize(refs.guestFirstName.value);
+      const lastName = normalize(refs.guestLastName.value);
+      const gender = normalize(refs.guestGender.value).toUpperCase();
+      if (!firstName || !lastName || !["H", "M"].includes(gender)) {
+        refs.guestError.textContent = "Completa nombre, apellido y genero.";
+        refs.guestError.classList.remove("hidden");
+        return;
+      }
+      cleanup();
+      resolve({ fullName: `${firstName} ${lastName}`.trim(), gender });
+    };
+
+    refs.guestForm.addEventListener("submit", submitHandler);
+    refs.guestCancel.addEventListener("click", cancelHandler);
+  });
+}
+
+async function addGuestManually() {
+  const data = await askGuestData();
+  if (!data) return;
 
   state.guests.push({
     id: crypto.randomUUID(),
-    name: fullName,
-    gender,
+    name: data.fullName,
+    gender: data.gender,
     confirmed: true,
     sourceRow: null,
     tableId: null,
@@ -855,8 +891,8 @@ refs.csvInput.addEventListener("change", async (e) => {
   }
 });
 
-refs.addGuestBtn.addEventListener("click", () => {
-  addGuestManually();
+refs.addGuestBtn.addEventListener("click", async () => {
+  await addGuestManually();
 });
 
 refs.addOneTableBtn.addEventListener("click", () => {
