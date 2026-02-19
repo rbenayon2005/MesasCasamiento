@@ -20,6 +20,10 @@ const state = {
     revision: 0,
     poller: null,
   },
+  auth: {
+    user: "",
+    pass: "",
+  },
 };
 
 const refs = {
@@ -42,19 +46,76 @@ const refs = {
 };
 
 async function apiRequest(path, options = {}) {
+  const authHeaders = {};
+  if (state.auth.user && state.auth.pass) {
+    authHeaders["x-auth-user"] = state.auth.user;
+    authHeaders["x-auth-pass"] = state.auth.pass;
+  }
   const response = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: { "Content-Type": "application/json", ...authHeaders, ...(options.headers || {}) },
     ...options,
   });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `HTTP ${response.status}`);
+    const err = new Error(text || `HTTP ${response.status}`);
+    err.status = response.status;
+    throw err;
   }
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
     return response.json();
   }
   return null;
+}
+
+function loadAuthFromStorage() {
+  state.auth.user = localStorage.getItem("mesas_auth_user") || "";
+  state.auth.pass = localStorage.getItem("mesas_auth_pass") || "";
+}
+
+function saveAuthToStorage() {
+  localStorage.setItem("mesas_auth_user", state.auth.user);
+  localStorage.setItem("mesas_auth_pass", state.auth.pass);
+}
+
+function clearAuthInStorage() {
+  state.auth.user = "";
+  state.auth.pass = "";
+  localStorage.removeItem("mesas_auth_user");
+  localStorage.removeItem("mesas_auth_pass");
+}
+
+function askCredentials() {
+  const user = window.prompt("Usuario:");
+  if (user === null) return false;
+  const pass = window.prompt("Password:");
+  if (pass === null) return false;
+  state.auth.user = user.trim();
+  state.auth.pass = pass.trim();
+  if (!state.auth.user || !state.auth.pass) {
+    showToast("Usuario/password requeridos.");
+    return false;
+  }
+  saveAuthToStorage();
+  return true;
+}
+
+async function ensureAuthSession() {
+  loadAuthFromStorage();
+  for (let i = 0; i < 3; i += 1) {
+    if (!state.auth.user || !state.auth.pass) {
+      if (!askCredentials()) return false;
+    }
+    try {
+      await apiRequest("/api/state?revision=0");
+      return true;
+    } catch (err) {
+      if (err.status !== 401) return true;
+      clearAuthInStorage();
+      showToast("Credenciales invalidas.");
+    }
+  }
+  return false;
 }
 
 function serializeStateForRemote() {
@@ -148,7 +209,12 @@ async function loadRemoteSnapshot() {
       showToast(`Datos cargados de la nube (${data.guests.length} invitados).`);
     }
     startRemotePolling();
-  } catch (_) {
+  } catch (err) {
+    if (err.status === 401) {
+      clearAuthInStorage();
+      const ok = await ensureAuthSession();
+      if (ok) return loadRemoteSnapshot();
+    }
     state.remote.available = false;
   }
 }
@@ -167,8 +233,12 @@ function startRemotePolling() {
         applyRemoteSnapshot(data);
         render();
       }
-    } catch (_) {
-      // noop
+    } catch (err) {
+      if (err.status === 401) {
+        clearInterval(state.remote.poller);
+        state.remote.poller = null;
+        clearAuthInStorage();
+      }
     }
   }, 4000);
 }
@@ -811,6 +881,11 @@ refs.onlyConfirmed.addEventListener("change", (e) => {
 
 async function init() {
   render();
+  const authed = await ensureAuthSession();
+  if (!authed) {
+    showToast("Sesion cancelada.");
+    return;
+  }
   await loadRemoteSnapshot();
   render();
 }
