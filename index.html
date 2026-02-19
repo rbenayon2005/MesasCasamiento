@@ -19,21 +19,13 @@
           <input id="csvFile" type="file" accept=".csv" />
           <span>Cargar CSV asignacion</span>
         </label>
-        <button id="loadCurrentBtn">Usar asignacion actual</button>
-        <button id="newLayoutBtn">Nuevo layout</button>
+        <button id="addGuestBtn">Agregar invitado</button>
         <button id="addOneTableBtn">+1 mesa</button>
         <button id="exportBtn">Exportar CSV</button>
       </div>
     </header>
 
     <section class="toolbar">
-      <div class="config">
-        <h2>Layout nuevo</h2>
-        <label>Mesa 1 fija: 20 personas</label>
-        <label>Mesas hombres x10: <input id="menTables" type="number" min="0" value="0" /></label>
-        <label>Mesas mujeres x10: <input id="womenTables" type="number" min="0" value="0" /></label>
-        <label>Mesas mixtas x10: <input id="mixedTables" type="number" min="0" value="19" /></label>
-      </div>
       <div class="filters">
         <h2>Filtros</h2>
         <label>Buscar: <input id="searchInput" type="text" placeholder="Nombre o apellido" /></label>
@@ -45,7 +37,6 @@
             <option value="M">Mujeres</option>
           </select>
         </label>
-        <label><input id="onlyConfirmed" type="checkbox" checked /> Solo confirmados</label>
       </div>
       <div class="stats" id="stats"></div>
     </section>
@@ -59,6 +50,24 @@
         <div id="tablesGrid" class="tables-grid"></div>
       </section>
     </main>
+
+    <div id="authModal" class="auth-modal hidden" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <form id="authForm" class="auth-card">
+        <h2 id="authTitle">Ingresar al organizador</h2>
+        <label>
+          Usuario
+          <input id="authUser" type="text" autocomplete="username" required />
+        </label>
+        <label>
+          Password
+          <input id="authPass" type="password" autocomplete="current-password" required />
+        </label>
+        <p id="authError" class="auth-error hidden">Credenciales invalidas.</p>
+        <div class="auth-actions">
+          <button id="authSubmit" type="submit">Entrar</button>
+        </div>
+      </form>
+    </div>
 
     <div id="toast" class="toast hidden"></div>
     <script src="app.js"></script>

@@ -69,7 +69,7 @@ button:hover,
 
 .toolbar {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 2fr 1fr;
   gap: 14px;
   padding: 14px 20px;
 }
@@ -283,6 +283,43 @@ select {
   color: white;
   border-radius: 8px;
   font-size: 0.9rem;
+}
+
+.auth-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 24, 30, 0.48);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+  padding: 20px;
+}
+
+.auth-card {
+  width: min(420px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 24px 44px rgba(0, 0, 0, 0.2);
+}
+
+.auth-card h2 {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+}
+
+.auth-error {
+  margin: 6px 0 0;
+  color: var(--bad);
+  font-size: 0.88rem;
+}
+
+.auth-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 .hidden {

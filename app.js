@@ -11,7 +11,6 @@ const state = {
   filter: {
     search: "",
     gender: "all",
-    onlyConfirmed: true,
   },
   remote: {
     available: false,
@@ -29,20 +28,20 @@ const state = {
 const refs = {
   fileInput: document.getElementById("excelFile"),
   csvInput: document.getElementById("csvFile"),
-  loadCurrentBtn: document.getElementById("loadCurrentBtn"),
-  newLayoutBtn: document.getElementById("newLayoutBtn"),
+  addGuestBtn: document.getElementById("addGuestBtn"),
   addOneTableBtn: document.getElementById("addOneTableBtn"),
   exportBtn: document.getElementById("exportBtn"),
-  menTables: document.getElementById("menTables"),
-  womenTables: document.getElementById("womenTables"),
-  mixedTables: document.getElementById("mixedTables"),
   searchInput: document.getElementById("searchInput"),
   genderFilter: document.getElementById("genderFilter"),
-  onlyConfirmed: document.getElementById("onlyConfirmed"),
   unassignedList: document.getElementById("unassignedList"),
   tablesGrid: document.getElementById("tablesGrid"),
   stats: document.getElementById("stats"),
   toast: document.getElementById("toast"),
+  authModal: document.getElementById("authModal"),
+  authForm: document.getElementById("authForm"),
+  authUser: document.getElementById("authUser"),
+  authPass: document.getElementById("authPass"),
+  authError: document.getElementById("authError"),
 };
 
 async function apiRequest(path, options = {}) {
@@ -86,25 +85,40 @@ function clearAuthInStorage() {
 }
 
 function askCredentials() {
-  const user = window.prompt("Usuario:");
-  if (user === null) return false;
-  const pass = window.prompt("Password:");
-  if (pass === null) return false;
-  state.auth.user = user.trim();
-  state.auth.pass = pass.trim();
-  if (!state.auth.user || !state.auth.pass) {
-    showToast("Usuario/password requeridos.");
-    return false;
-  }
-  saveAuthToStorage();
-  return true;
+  return new Promise((resolve) => {
+    refs.authError.classList.add("hidden");
+    refs.authUser.value = state.auth.user || "";
+    refs.authPass.value = "";
+    refs.authModal.classList.remove("hidden");
+    refs.authUser.focus();
+
+    const submitHandler = (e) => {
+      e.preventDefault();
+      const user = refs.authUser.value.trim();
+      const pass = refs.authPass.value.trim();
+      if (!user || !pass) {
+        refs.authError.textContent = "Usuario y password requeridos.";
+        refs.authError.classList.remove("hidden");
+        return;
+      }
+      refs.authModal.classList.add("hidden");
+      refs.authForm.removeEventListener("submit", submitHandler);
+      state.auth.user = user;
+      state.auth.pass = pass;
+      saveAuthToStorage();
+      resolve(true);
+    };
+
+    refs.authForm.addEventListener("submit", submitHandler);
+  });
 }
 
 async function ensureAuthSession() {
   loadAuthFromStorage();
   for (let i = 0; i < 3; i += 1) {
     if (!state.auth.user || !state.auth.pass) {
-      if (!askCredentials()) return false;
+      const entered = await askCredentials();
+      if (!entered) return false;
     }
     try {
       await apiRequest("/api/state?revision=0");
@@ -112,7 +126,8 @@ async function ensureAuthSession() {
     } catch (err) {
       if (err.status !== 401) return true;
       clearAuthInStorage();
-      showToast("Credenciales invalidas.");
+      refs.authError.textContent = "Credenciales invalidas.";
+      refs.authError.classList.remove("hidden");
     }
   }
   return false;
@@ -363,31 +378,6 @@ function rebuildTablesFromCurrentAssignments() {
   setConsecutiveTables(maxTable);
 }
 
-function buildNewLayout() {
-  state.guests.forEach((g) => {
-    g.tableId = null;
-  });
-
-  const menTables = Number(refs.menTables.value || 0);
-  const womenTables = Number(refs.womenTables.value || 0);
-  const mixedTables = Number(refs.mixedTables.value || 0);
-
-  let n = 1;
-  state.tables = [{ id: `t-${n}`, number: n, name: `Mesa ${n}`, type: null, capacity: 20 }];
-  n += 1;
-
-  for (let i = 0; i < menTables; i += 1, n += 1) {
-    state.tables.push({ id: `t-${n}`, number: n, name: `Mesa ${n}`, type: "men", capacity: 10 });
-  }
-  for (let i = 0; i < womenTables; i += 1, n += 1) {
-    state.tables.push({ id: `t-${n}`, number: n, name: `Mesa ${n}`, type: "women", capacity: 10 });
-  }
-  for (let i = 0; i < mixedTables; i += 1, n += 1) {
-    state.tables.push({ id: `t-${n}`, number: n, name: `Mesa ${n}`, type: null, capacity: 10 });
-  }
-  syncTableOrder();
-}
-
 function addMoreTables(count = 3) {
   const lastNumber = state.tables.length ? Math.max(...state.tables.map((t) => t.number)) : 0;
   for (let i = 1; i <= count; i += 1) {
@@ -445,9 +435,35 @@ function deleteGuest(guestId) {
   }
 }
 
+function addGuestManually() {
+  const firstName = normalize(window.prompt("Nombre del invitado:"));
+  if (!firstName) return;
+  const lastName = normalize(window.prompt("Apellido del invitado:"));
+  if (!lastName) return;
+  const fullName = `${firstName} ${lastName}`.trim();
+
+  const genderInput = normalize(window.prompt("Genero (Hombre/Mujer):")).toLowerCase();
+  const gender = genderInput.startsWith("muj") || genderInput === "m" ? "M" : genderInput.startsWith("hom") || genderInput === "h" ? "H" : "";
+  if (!gender) {
+    showToast("Genero invalido. Usa Hombre o Mujer.");
+    return;
+  }
+
+  state.guests.push({
+    id: crypto.randomUUID(),
+    name: fullName,
+    gender,
+    confirmed: true,
+    sourceRow: null,
+    tableId: null,
+  });
+  showToast("Invitado agregado.");
+  render();
+  scheduleRemoteSave();
+}
+
 function filteredGuests() {
   return state.guests.filter((g) => {
-    if (state.filter.onlyConfirmed && !g.confirmed) return false;
     if (state.filter.gender !== "all" && g.gender !== state.filter.gender) return false;
     if (state.filter.search) {
       const q = state.filter.search.toLowerCase();
@@ -839,18 +855,8 @@ refs.csvInput.addEventListener("change", async (e) => {
   }
 });
 
-refs.loadCurrentBtn.addEventListener("click", () => {
-  if (!state.guests.length) return showToast("Primero carga el Excel.");
-  rebuildTablesFromCurrentAssignments();
-  render();
-  scheduleRemoteSave();
-});
-
-refs.newLayoutBtn.addEventListener("click", () => {
-  if (!state.guests.length) return showToast("Primero carga el Excel.");
-  buildNewLayout();
-  render();
-  scheduleRemoteSave();
+refs.addGuestBtn.addEventListener("click", () => {
+  addGuestManually();
 });
 
 refs.addOneTableBtn.addEventListener("click", () => {
@@ -872,10 +878,6 @@ refs.searchInput.addEventListener("input", (e) => {
 });
 refs.genderFilter.addEventListener("change", (e) => {
   state.filter.gender = e.target.value;
-  render();
-});
-refs.onlyConfirmed.addEventListener("change", (e) => {
-  state.filter.onlyConfirmed = e.target.checked;
   render();
 });
 
