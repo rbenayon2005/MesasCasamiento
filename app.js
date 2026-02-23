@@ -503,6 +503,75 @@ function renameTableNumber(tableId, nextNumberRaw) {
   return true;
 }
 
+function enableTableNumberInlineEdit(titleEl, tableId) {
+  let editing = false;
+
+  const startEdit = () => {
+    if (editing) return;
+    const table = state.tables.find((t) => t.id === tableId);
+    if (!table) return;
+    editing = true;
+    titleEl.classList.add("editing");
+
+    const numberSpan = titleEl.querySelector(".table-number-display");
+    if (!numberSpan) {
+      editing = false;
+      titleEl.classList.remove("editing");
+      return;
+    }
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.step = "1";
+    input.value = String(table.number);
+    input.className = "table-number-inline-editor";
+    input.setAttribute("aria-label", "Numero de mesa");
+
+    const finish = (mode) => {
+      if (!editing) return;
+      editing = false;
+      titleEl.classList.remove("editing");
+      if (mode === "save") {
+        const ok = renameTableNumber(tableId, input.value);
+        if (ok) return;
+      }
+      const currentTable = state.tables.find((t) => t.id === tableId) || table;
+      const restored = document.createElement("span");
+      restored.className = "table-number-display";
+      restored.textContent = String(currentTable.number);
+      if (input.isConnected) input.replaceWith(restored);
+    };
+
+    input.addEventListener("blur", () => finish("save"));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        input.blur();
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        finish("cancel");
+      }
+    });
+
+    numberSpan.replaceWith(input);
+    input.focus();
+    input.select();
+  };
+
+  titleEl.addEventListener("click", (e) => {
+    e.preventDefault();
+    startEdit();
+  });
+  titleEl.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    startEdit();
+  });
+}
+
 function splitGuestName(fullName) {
   const parts = normalize(fullName)
     .split(/\s+/)
@@ -774,13 +843,9 @@ function renderTables(visibleGuests) {
       card.dataset.tableId = table.id;
       card.innerHTML = `
         <div class="table-head">
-          <div class="table-title">
-            <strong>${table.name}</strong>
-            <label class="table-number-inline">
-              N°
-              <input class="table-number-input" type="number" min="1" step="1" value="${table.number}" aria-label="Numero de mesa" />
-            </label>
-          </div>
+          <strong class="table-title-trigger" role="button" tabindex="0" title="Click para editar numero de mesa">
+            Mesa <span class="table-number-display">${table.number}</span>
+          </strong>
           <div class="table-actions">
             <button class="table-remove" type="button" aria-label="Eliminar mesa" title="Eliminar mesa">Eliminar</button>
             <span class="table-drag-handle" title="Mover mesa en el layout">Mover</span>
@@ -791,30 +856,14 @@ function renderTables(visibleGuests) {
       `;
       const handle = card.querySelector(".table-drag-handle");
       const removeBtn = card.querySelector(".table-remove");
-      const numberInput = card.querySelector(".table-number-input");
+      const titleTrigger = card.querySelector(".table-title-trigger");
       applyTableReorderBehavior(card, table.id, handle);
+      enableTableNumberInlineEdit(titleTrigger, table.id);
       removeBtn.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         deleteTable(table.id);
       });
-      const commitTableNumber = () => {
-        const ok = renameTableNumber(table.id, numberInput.value);
-        if (!ok) numberInput.value = String(table.number);
-      };
-      numberInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          numberInput.blur();
-          return;
-        }
-        if (e.key === "Escape") {
-          e.preventDefault();
-          numberInput.value = String(table.number);
-          numberInput.blur();
-        }
-      });
-      numberInput.addEventListener("blur", commitTableNumber);
 
       const zone = document.createElement("div");
       zone.className = "guest-list dropzone";
