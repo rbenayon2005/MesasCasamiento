@@ -462,6 +462,47 @@ function deleteTable(tableId) {
   scheduleRemoteSave();
 }
 
+function renameTableNumber(tableId, nextNumberRaw) {
+  const table = state.tables.find((t) => t.id === tableId);
+  if (!table) return false;
+
+  const nextNumber = Math.trunc(Number(nextNumberRaw));
+  if (!Number.isFinite(nextNumber) || nextNumber <= 0) {
+    showToast("El numero de mesa debe ser un entero mayor a 0.");
+    return false;
+  }
+
+  if (table.number === nextNumber) return true;
+
+  const duplicate = state.tables.find((t) => t.id !== tableId && t.number === nextNumber);
+  if (duplicate) {
+    showToast(`La mesa ${nextNumber} ya existe.`);
+    return false;
+  }
+
+  const oldId = table.id;
+  const oldNumber = table.number;
+  const newId = `t-${nextNumber}`;
+  const hadDefaultName = normalize(table.name) === `Mesa ${oldNumber}`;
+
+  table.number = nextNumber;
+  table.id = newId;
+  if (hadDefaultName) {
+    table.name = `Mesa ${nextNumber}`;
+  }
+
+  state.guests.forEach((g) => {
+    if (g.tableId === oldId) g.tableId = newId;
+  });
+  state.tableOrder = state.tableOrder.map((id) => (id === oldId ? newId : id));
+  if (state.dragTableId === oldId) state.dragTableId = newId;
+  syncTableOrder();
+  render();
+  scheduleRemoteSave();
+  showToast(`Mesa renumerada a ${nextNumber}.`);
+  return true;
+}
+
 function splitGuestName(fullName) {
   const parts = normalize(fullName)
     .split(/\s+/)
@@ -733,7 +774,13 @@ function renderTables(visibleGuests) {
       card.dataset.tableId = table.id;
       card.innerHTML = `
         <div class="table-head">
-          <strong>${table.name}</strong>
+          <div class="table-title">
+            <strong>${table.name}</strong>
+            <label class="table-number-inline">
+              N°
+              <input class="table-number-input" type="number" min="1" step="1" value="${table.number}" aria-label="Numero de mesa" />
+            </label>
+          </div>
           <div class="table-actions">
             <button class="table-remove" type="button" aria-label="Eliminar mesa" title="Eliminar mesa">Eliminar</button>
             <span class="table-drag-handle" title="Mover mesa en el layout">Mover</span>
@@ -744,12 +791,30 @@ function renderTables(visibleGuests) {
       `;
       const handle = card.querySelector(".table-drag-handle");
       const removeBtn = card.querySelector(".table-remove");
+      const numberInput = card.querySelector(".table-number-input");
       applyTableReorderBehavior(card, table.id, handle);
       removeBtn.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         deleteTable(table.id);
       });
+      const commitTableNumber = () => {
+        const ok = renameTableNumber(table.id, numberInput.value);
+        if (!ok) numberInput.value = String(table.number);
+      };
+      numberInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          numberInput.blur();
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          numberInput.value = String(table.number);
+          numberInput.blur();
+        }
+      });
+      numberInput.addEventListener("blur", commitTableNumber);
 
       const zone = document.createElement("div");
       zone.className = "guest-list dropzone";

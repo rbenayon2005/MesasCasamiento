@@ -167,6 +167,30 @@ select {
   flex-wrap: wrap;
 }
 
+.table-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.table-number-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: 0.78rem;
+  color: #555;
+}
+
+.table-number-input {
+  width: 70px;
+  margin-top: 0;
+  padding: 3px 6px;
+  border-radius: 7px;
+  font-size: 0.82rem;
+}
+
 .table-meta {
   font-size: 0.83rem;
   color: #444;
