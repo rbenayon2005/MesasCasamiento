@@ -1,0 +1,10 @@
+{
+  "explorer.excludeGitIgnore": true,
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/.wrangler": true,
+    "**/.DS_Store": true,
+    "Invitados Sharon y Ariel.xlsx": true,
+    "mesas_asignacion.csv": true
+  }
+}
