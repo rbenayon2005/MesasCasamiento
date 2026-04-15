@@ -1,0 +1,17 @@
+node_modules/
+.wrangler/
+.DS_Store
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local env / temp
+.env
+.env.*
+!.env.example
+
+# Local event data
+Invitados Sharon y Ariel.xlsx
+mesas_asignacion.csv

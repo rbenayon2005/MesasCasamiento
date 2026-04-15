@@ -1,7 +1,4 @@
-import { loadState, saveState } from "./_db";
-
-const AUTH_USER = "adminmesas";
-const AUTH_PASS = "mesas2026";
+import { loadEventState, requireSessionUser, saveEventState } from "./_db.js";
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -14,36 +11,43 @@ function json(data, status = 200) {
 }
 
 function unauthorized() {
-  return json({ error: "No autorizado" }, 401);
+  return json({ error: "Sesion invalida o vencida." }, 401);
 }
 
-function isAuthorized(request) {
-  const user = request.headers.get("x-auth-user") || "";
-  const pass = request.headers.get("x-auth-pass") || "";
-  return user === AUTH_USER && pass === AUTH_PASS;
+function getEventId(request) {
+  const url = new URL(request.url);
+  return String(url.searchParams.get("eventId") || "").trim();
 }
 
 export async function onRequestGet(context) {
-  if (!isAuthorized(context.request)) return unauthorized();
+  const session = await requireSessionUser(context.env.DB, context.request);
+  if (!session) return unauthorized();
+
   try {
-    const state = await loadState(context.env.DB);
-    const requestedRevision = Number(context.request.url ? new URL(context.request.url).searchParams.get("revision") : 0);
+    const eventId = getEventId(context.request);
+    if (!eventId) return json({ error: "Falta eventId." }, 400);
+    const state = await loadEventState(context.env.DB, session.user.id, eventId);
+    const requestedRevision = Number(new URL(context.request.url).searchParams.get("revision") || 0);
     if (Number.isFinite(requestedRevision) && requestedRevision > 0 && requestedRevision === state.revision) {
       return json({ changed: false, revision: state.revision });
     }
     return json({ changed: true, ...state });
   } catch (err) {
-    return json({ error: "Error leyendo estado D1", detail: String(err?.message || err) }, 500);
+    return json({ error: String(err?.message || err) }, 400);
   }
 }
 
 export async function onRequestPost(context) {
-  if (!isAuthorized(context.request)) return unauthorized();
+  const session = await requireSessionUser(context.env.DB, context.request);
+  if (!session) return unauthorized();
+
   try {
+    const eventId = getEventId(context.request);
+    if (!eventId) return json({ error: "Falta eventId." }, 400);
     const payload = await context.request.json();
-    const result = await saveState(context.env.DB, payload);
-    return json(result, 200);
+    const result = await saveEventState(context.env.DB, session.user.id, eventId, payload);
+    return json(result);
   } catch (err) {
-    return json({ error: "Error guardando estado D1", detail: String(err?.message || err) }, 500);
+    return json({ error: String(err?.message || err) }, 400);
   }
 }

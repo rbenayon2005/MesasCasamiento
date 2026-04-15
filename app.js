@@ -1,6 +1,12 @@
 const SHEET_NAME = "Invitados Ariel Casamiento";
 const START_ROW = 8;
 
+const STORAGE_KEYS = {
+  sessionToken: "mesas_session_token",
+  sessionUser: "mesas_session_user",
+  currentEventId: "mesas_current_event_id",
+};
+
 const state = {
   guests: [],
   tables: [],
@@ -19,17 +25,22 @@ const state = {
     revision: 0,
     poller: null,
   },
-  auth: {
-    user: "",
-    pass: "",
+  session: {
+    token: "",
+    user: null,
   },
+  authMode: "login",
+  events: [],
+  currentEventId: "",
 };
 
 const refs = {
+  appTitle: document.getElementById("appTitle"),
+  topbarEventMeta: document.getElementById("topbarEventMeta"),
   fileInput: document.getElementById("excelFile"),
   csvInput: document.getElementById("csvFile"),
+  openCreateEventBtn: document.getElementById("openCreateEventBtn"),
   addGuestBtn: document.getElementById("addGuestBtn"),
-  addOneTableBtn: document.getElementById("addOneTableBtn"),
   exportBtn: document.getElementById("exportBtn"),
   searchInput: document.getElementById("searchInput"),
   genderFilter: document.getElementById("genderFilter"),
@@ -39,9 +50,36 @@ const refs = {
   toast: document.getElementById("toast"),
   authModal: document.getElementById("authModal"),
   authForm: document.getElementById("authForm"),
+  authModeLogin: document.getElementById("authModeLogin"),
+  authModeRegister: document.getElementById("authModeRegister"),
+  authTitle: document.getElementById("authTitle"),
+  authSubtitle: document.getElementById("authSubtitle"),
+  authNameWrap: document.getElementById("authNameWrap"),
+  authName: document.getElementById("authName"),
   authUser: document.getElementById("authUser"),
   authPass: document.getElementById("authPass"),
   authError: document.getElementById("authError"),
+  authSubmit: document.getElementById("authSubmit"),
+  sessionBadge: document.getElementById("sessionBadge"),
+  sessionBadgeName: document.getElementById("sessionBadgeName"),
+  sessionBadgeEmail: document.getElementById("sessionBadgeEmail"),
+  logoutBtn: document.getElementById("logoutBtn"),
+  eventCountBadge: document.getElementById("eventCountBadge"),
+  eventList: document.getElementById("eventList"),
+  createEventForm: document.getElementById("createEventForm"),
+  createEventModal: document.getElementById("createEventModal"),
+  createEventClose: document.getElementById("createEventClose"),
+  newEventName: document.getElementById("newEventName"),
+  eventSettingsForm: document.getElementById("eventSettingsForm"),
+  eventNameInput: document.getElementById("eventNameInput"),
+  eventSummary: document.getElementById("eventSummary"),
+  addTableForm: document.getElementById("addTableForm"),
+  newTableCapacity: document.getElementById("newTableCapacity"),
+  bulkTablesForm: document.getElementById("bulkTablesForm"),
+  bulkTableCount: document.getElementById("bulkTableCount"),
+  bulkTableCapacity: document.getElementById("bulkTableCapacity"),
+  managementModal: document.getElementById("managementModal"),
+  managementClose: document.getElementById("managementClose"),
   guestModal: document.getElementById("guestModal"),
   guestForm: document.getElementById("guestForm"),
   guestTitle: document.getElementById("guestTitle"),
@@ -55,14 +93,14 @@ const refs = {
 };
 
 async function apiRequest(path, options = {}) {
+  const { skipAuth = false, headers = {}, ...fetchOptions } = options;
   const authHeaders = {};
-  if (state.auth.user && state.auth.pass) {
-    authHeaders["x-auth-user"] = state.auth.user;
-    authHeaders["x-auth-pass"] = state.auth.pass;
+  if (!skipAuth && state.session.token) {
+    authHeaders["x-session-token"] = state.session.token;
   }
   const response = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...authHeaders, ...(options.headers || {}) },
-    ...options,
+    headers: { "Content-Type": "application/json", ...authHeaders, ...headers },
+    ...fetchOptions,
   });
   if (!response.ok) {
     const text = await response.text();
@@ -77,130 +115,299 @@ async function apiRequest(path, options = {}) {
   return null;
 }
 
-function loadAuthFromStorage() {
-  state.auth.user = localStorage.getItem("mesas_auth_user") || "";
-  state.auth.pass = localStorage.getItem("mesas_auth_pass") || "";
+function normalize(value) {
+  return (value ?? "").toString().trim();
 }
 
-function saveAuthToStorage() {
-  localStorage.setItem("mesas_auth_user", state.auth.user);
-  localStorage.setItem("mesas_auth_pass", state.auth.pass);
+function currentEvent() {
+  return state.events.find((event) => event.id === state.currentEventId) || null;
 }
 
-function clearAuthInStorage() {
-  state.auth.user = "";
-  state.auth.pass = "";
-  localStorage.removeItem("mesas_auth_user");
-  localStorage.removeItem("mesas_auth_pass");
+function syncCurrentEventSummary() {
+  const event = currentEvent();
+  if (!event) return;
+  event.tableCount = state.tables.length;
+  event.guestCount = state.guests.length;
 }
 
-function askCredentials() {
+function showToast(message) {
+  refs.toast.textContent = message;
+  refs.toast.classList.remove("hidden");
+  setTimeout(() => refs.toast.classList.add("hidden"), 2200);
+}
+
+function openManagementModal() {
+  if (!state.currentEventId) {
+    showToast("Primero crea o selecciona un evento.");
+    return;
+  }
+  refs.managementModal.classList.remove("hidden");
+}
+
+function closeManagementModal() {
+  refs.managementModal.classList.add("hidden");
+}
+
+function openCreateEventModal() {
+  refs.newEventName.value = "";
+  refs.createEventModal.classList.remove("hidden");
+  refs.newEventName.focus();
+}
+
+function closeCreateEventModal() {
+  refs.createEventModal.classList.add("hidden");
+}
+
+function loadSessionFromStorage() {
+  state.session.token = localStorage.getItem(STORAGE_KEYS.sessionToken) || "";
+  try {
+    state.session.user = JSON.parse(localStorage.getItem(STORAGE_KEYS.sessionUser) || "null");
+  } catch {
+    state.session.user = null;
+  }
+  state.currentEventId = localStorage.getItem(STORAGE_KEYS.currentEventId) || "";
+}
+
+function saveSessionToStorage() {
+  if (state.session.token) {
+    localStorage.setItem(STORAGE_KEYS.sessionToken, state.session.token);
+  } else {
+    localStorage.removeItem(STORAGE_KEYS.sessionToken);
+  }
+  if (state.session.user) {
+    localStorage.setItem(STORAGE_KEYS.sessionUser, JSON.stringify(state.session.user));
+  } else {
+    localStorage.removeItem(STORAGE_KEYS.sessionUser);
+  }
+  if (state.currentEventId) {
+    localStorage.setItem(STORAGE_KEYS.currentEventId, state.currentEventId);
+  } else {
+    localStorage.removeItem(STORAGE_KEYS.currentEventId);
+  }
+}
+
+function clearSession() {
+  state.session.token = "";
+  state.session.user = null;
+  state.events = [];
+  state.currentEventId = "";
+  clearRemoteState();
+  resetLocalEventState();
+  saveSessionToStorage();
+  render();
+}
+
+function clearRemoteState() {
+  clearTimeout(state.remote.saveTimer);
+  if (state.remote.poller) {
+    clearInterval(state.remote.poller);
+  }
+  state.remote.available = false;
+  state.remote.saveTimer = null;
+  state.remote.saveInFlight = false;
+  state.remote.revision = 0;
+  state.remote.poller = null;
+}
+
+function resetLocalEventState() {
+  state.guests = [];
+  state.tables = [];
+  state.tableOrder = [];
+}
+
+function parseApiError(err, fallback) {
+  try {
+    const data = JSON.parse(err.message);
+    return data.error || data.detail || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function setAuthMode(mode) {
+  state.authMode = mode === "register" ? "register" : "login";
+  const register = state.authMode === "register";
+  refs.authModeLogin.classList.toggle("active", !register);
+  refs.authModeRegister.classList.toggle("active", register);
+  refs.authNameWrap.classList.toggle("hidden", !register);
+  refs.authName.required = register;
+  refs.authTitle.textContent = register ? "Crea tu cuenta" : "Ingresar a tus eventos";
+  refs.authSubtitle.textContent = register
+    ? "Registra una cuenta para crear eventos y administrar mesas."
+    : "Entra con tu cuenta para administrar mesas y eventos.";
+  refs.authSubmit.textContent = register ? "Crear cuenta" : "Entrar";
+  refs.authPass.autocomplete = register ? "new-password" : "current-password";
+}
+
+function showAuthModal() {
   return new Promise((resolve) => {
     refs.authError.classList.add("hidden");
-    refs.authUser.value = state.auth.user || "";
+    refs.authError.textContent = "";
+    refs.authName.value = "";
+    refs.authUser.value = state.session.user?.email || "";
     refs.authPass.value = "";
+    setAuthMode(state.authMode || "login");
     refs.authModal.classList.remove("hidden");
-    refs.authUser.focus();
+    (state.authMode === "register" ? refs.authName : refs.authUser).focus();
 
-    const submitHandler = (e) => {
+    const cleanup = () => {
+      refs.authModal.classList.add("hidden");
+      refs.authForm.removeEventListener("submit", submitHandler);
+      refs.authModeLogin.removeEventListener("click", loginModeHandler);
+      refs.authModeRegister.removeEventListener("click", registerModeHandler);
+    };
+
+    const loginModeHandler = () => setAuthMode("login");
+    const registerModeHandler = () => setAuthMode("register");
+
+    const submitHandler = async (e) => {
       e.preventDefault();
-      const user = refs.authUser.value.trim();
-      const pass = refs.authPass.value.trim();
-      if (!user || !pass) {
-        refs.authError.textContent = "Usuario y password requeridos.";
+      const email = normalize(refs.authUser.value).toLowerCase();
+      const password = normalize(refs.authPass.value);
+      const name = normalize(refs.authName.value);
+
+      if (!email || !password || (state.authMode === "register" && !name)) {
+        refs.authError.textContent =
+          state.authMode === "register"
+            ? "Completa nombre, email y password."
+            : "Completa email y password.";
         refs.authError.classList.remove("hidden");
         return;
       }
-      refs.authModal.classList.add("hidden");
-      refs.authForm.removeEventListener("submit", submitHandler);
-      state.auth.user = user;
-      state.auth.pass = pass;
-      saveAuthToStorage();
-      resolve(true);
+
+      try {
+        const session = await apiRequest("/api/session", {
+          method: "POST",
+          skipAuth: true,
+          body: JSON.stringify({
+            action: state.authMode,
+            name,
+            email,
+            password,
+          }),
+        });
+        cleanup();
+        resolve(session);
+      } catch (err) {
+        refs.authError.textContent = parseApiError(
+          err,
+          state.authMode === "register" ? "No se pudo crear la cuenta." : "No se pudo iniciar sesion.",
+        );
+        refs.authError.classList.remove("hidden");
+      }
     };
 
     refs.authForm.addEventListener("submit", submitHandler);
+    refs.authModeLogin.addEventListener("click", loginModeHandler);
+    refs.authModeRegister.addEventListener("click", registerModeHandler);
   });
 }
 
-async function ensureAuthSession() {
-  loadAuthFromStorage();
-  for (let i = 0; i < 3; i += 1) {
-    if (!state.auth.user || !state.auth.pass) {
-      const entered = await askCredentials();
-      if (!entered) return false;
-    }
+async function ensureSession() {
+  loadSessionFromStorage();
+  if (state.session.token) {
     try {
-      await apiRequest("/api/state?revision=0");
+      await refreshEvents();
       return true;
     } catch (err) {
-      if (err.status !== 401) return true;
-      clearAuthInStorage();
-      refs.authError.textContent = "Credenciales invalidas.";
-      refs.authError.classList.remove("hidden");
+      if (err.status !== 401) throw err;
+      clearSession();
     }
   }
-  return false;
+
+  const session = await showAuthModal();
+  state.session.token = session.token;
+  state.session.user = session.user;
+  saveSessionToStorage();
+  await refreshEvents();
+  return true;
+}
+
+async function logout() {
+  try {
+    if (state.session.token) {
+      await apiRequest("/api/session", { method: "DELETE" });
+    }
+  } catch {
+    // no-op
+  }
+  clearSession();
+  setAuthMode("login");
+  await ensureSession();
+}
+
+async function refreshEvents() {
+  const data = await apiRequest("/api/events");
+  state.events = Array.isArray(data?.events) ? data.events : [];
+  const exists = state.events.some((event) => event.id === state.currentEventId);
+  if (!exists) {
+    state.currentEventId = state.events[0]?.id || "";
+  }
+  saveSessionToStorage();
+  renderAccountPanel();
+  renderEventsPanel();
 }
 
 function serializeStateForRemote() {
-  const tables = state.tables
-    .slice()
-    .sort((a, b) => a.number - b.number)
-    .map((t) => ({
-      number: t.number,
-      name: t.name,
-      type: t.type || null,
-      capacity: t.capacity,
-    }));
-
-  const guests = state.guests.map((g) => ({
-    id: g.id,
-    name: g.name,
-    gender: g.gender,
-    confirmed: !!g.confirmed,
-    sourceRow: Number.isFinite(g.sourceRow) ? g.sourceRow : null,
-    tableId: g.tableId || null,
-  }));
-
   return {
-    guests,
-    tables,
+    guests: state.guests.map((guest) => ({
+      id: guest.id,
+      name: guest.name,
+      gender: guest.gender,
+      confirmed: !!guest.confirmed,
+      sourceRow: Number.isFinite(guest.sourceRow) ? guest.sourceRow : null,
+      tableId: guest.tableId || null,
+    })),
+    tables: state.tables
+      .slice()
+      .sort((a, b) => a.number - b.number)
+      .map((table) => ({
+        number: table.number,
+        name: table.name,
+        type: table.type || null,
+        capacity: table.capacity,
+      })),
     tableOrder: state.tableOrder.slice(),
   };
 }
 
 function applyRemoteSnapshot(snapshot) {
-  if (!snapshot || !Array.isArray(snapshot.guests) || !Array.isArray(snapshot.tables)) return false;
-  state.guests = snapshot.guests.map((g) => ({
-    id: normalize(g.id) || crypto.randomUUID(),
-    name: normalize(g.name),
-    gender: normalize(g.gender).toUpperCase() === "M" ? "M" : "H",
-    confirmed: !!g.confirmed,
-    sourceRow: Number.isFinite(Number(g.sourceRow)) ? Number(g.sourceRow) : null,
-    tableId: normalize(g.tableId) || null,
+  if (!snapshot) return false;
+  const guests = Array.isArray(snapshot.guests) ? snapshot.guests : [];
+  const tables = Array.isArray(snapshot.tables) ? snapshot.tables : [];
+
+  state.guests = guests.map((guest) => ({
+    id: normalize(guest.id) || crypto.randomUUID(),
+    name: normalize(guest.name),
+    gender: normalize(guest.gender).toUpperCase() === "M" ? "M" : "H",
+    confirmed: !!guest.confirmed,
+    sourceRow: Number.isFinite(Number(guest.sourceRow)) ? Number(guest.sourceRow) : null,
+    tableId: normalize(guest.tableId) || null,
   }));
-  state.tables = snapshot.tables
-    .map((t) => ({
-      id: `t-${Number(t.number)}`,
-      number: Number(t.number),
-      name: normalize(t.name) || `Mesa ${Number(t.number)}`,
-      type: ["men", "women"].includes(t.type) ? t.type : null,
-      capacity: Number.isFinite(Number(t.capacity)) ? Number(t.capacity) : Number(t.number) === 1 ? 20 : 10,
+
+  state.tables = tables
+    .map((table) => ({
+      id: `t-${Number(table.number)}`,
+      number: Number(table.number),
+      name: normalize(table.name) || `Mesa ${Number(table.number)}`,
+      type: ["men", "women"].includes(table.type) ? table.type : null,
+      capacity: Number.isFinite(Number(table.capacity)) ? Number(table.capacity) : 10,
     }))
-    .filter((t) => Number.isFinite(t.number) && t.number > 0)
+    .filter((table) => Number.isFinite(table.number) && table.number > 0)
     .sort((a, b) => a.number - b.number);
 
-  state.tableOrder = Array.isArray(snapshot.tableOrder) ? snapshot.tableOrder.map((id) => normalize(id)).filter(Boolean) : [];
+  state.tableOrder = Array.isArray(snapshot.tableOrder)
+    ? snapshot.tableOrder.map((id) => normalize(id)).filter(Boolean)
+    : [];
   syncTableOrder();
   return true;
 }
 
 async function saveSnapshotNow() {
-  if (!state.remote.available || state.remote.saveInFlight) return;
+  if (!state.remote.available || state.remote.saveInFlight || !state.currentEventId) return;
   state.remote.saveInFlight = true;
   try {
-    const response = await apiRequest("/api/state", {
+    const response = await apiRequest(`/api/state?eventId=${encodeURIComponent(state.currentEventId)}`, {
       method: "POST",
       body: JSON.stringify(serializeStateForRemote()),
     });
@@ -208,14 +415,18 @@ async function saveSnapshotNow() {
       state.remote.revision = Number(response.revision);
     }
   } catch (err) {
-    showToast("No se pudo guardar en la nube.");
+    if (err.status === 401) {
+      await logout();
+      return;
+    }
+    showToast("No se pudo guardar el evento.");
   } finally {
     state.remote.saveInFlight = false;
   }
 }
 
 function scheduleRemoteSave(delayMs = 450) {
-  if (!state.remote.available) return;
+  if (!state.remote.available || !state.currentEventId) return;
   clearTimeout(state.remote.saveTimer);
   state.remote.saveTimer = setTimeout(() => {
     saveSnapshotNow();
@@ -223,59 +434,203 @@ function scheduleRemoteSave(delayMs = 450) {
 }
 
 async function loadRemoteSnapshot() {
+  if (!state.currentEventId) {
+    clearRemoteState();
+    resetLocalEventState();
+    render();
+    return;
+  }
+
   try {
-    const data = await apiRequest("/api/state");
+    const data = await apiRequest(`/api/state?eventId=${encodeURIComponent(state.currentEventId)}`);
     state.remote.available = true;
-    if (Number.isFinite(Number(data?.revision))) {
-      state.remote.revision = Number(data.revision);
-    }
-    if (data && (data.guests?.length || data.tables?.length)) {
-      applyRemoteSnapshot(data);
-      showToast(`Datos cargados de la nube (${data.guests.length} invitados).`);
-    }
+    state.remote.revision = Number.isFinite(Number(data?.revision)) ? Number(data.revision) : 0;
+    applyRemoteSnapshot(data);
     startRemotePolling();
+    render();
   } catch (err) {
     if (err.status === 401) {
-      clearAuthInStorage();
-      const ok = await ensureAuthSession();
-      if (ok) return loadRemoteSnapshot();
+      await logout();
+      return;
     }
+    showToast(parseApiError(err, "No se pudo cargar el evento."));
     state.remote.available = false;
   }
 }
 
 function startRemotePolling() {
-  if (!state.remote.available || state.remote.poller) return;
+  if (!state.remote.available || state.remote.poller || !state.currentEventId) return;
   state.remote.poller = setInterval(async () => {
-    if (state.remote.saveInFlight) return;
+    if (state.remote.saveInFlight || !state.currentEventId) return;
     try {
-      const data = await apiRequest(`/api/state?revision=${state.remote.revision}`);
+      const data = await apiRequest(
+        `/api/state?eventId=${encodeURIComponent(state.currentEventId)}&revision=${state.remote.revision}`,
+      );
       if (!data?.changed) return;
       if (Number.isFinite(Number(data.revision))) {
         state.remote.revision = Number(data.revision);
       }
-      if (data && (Array.isArray(data.guests) || Array.isArray(data.tables))) {
-        applyRemoteSnapshot(data);
-        render();
-      }
+      applyRemoteSnapshot(data);
+      render();
     } catch (err) {
       if (err.status === 401) {
-        clearInterval(state.remote.poller);
-        state.remote.poller = null;
-        clearAuthInStorage();
+        clearRemoteState();
+        await logout();
       }
     }
   }, 4000);
 }
 
-function showToast(message) {
-  refs.toast.textContent = message;
-  refs.toast.classList.remove("hidden");
-  setTimeout(() => refs.toast.classList.add("hidden"), 2000);
+async function selectEvent(eventId) {
+  if (eventId === state.currentEventId) return;
+  clearRemoteState();
+  state.currentEventId = eventId || "";
+  saveSessionToStorage();
+  resetLocalEventState();
+  render();
+  renderEventsPanel();
+  renderEventConfig();
+  await loadRemoteSnapshot();
 }
 
-function normalize(value) {
-  return (value ?? "").toString().trim();
+async function createEvent(name) {
+  const eventName = normalize(name);
+  if (!eventName) return;
+  const response = await apiRequest("/api/events", {
+    method: "POST",
+    body: JSON.stringify({ action: "create", name: eventName }),
+  });
+  if (Array.isArray(response?.events)) {
+    state.events = response.events;
+  } else {
+    await refreshEvents();
+  }
+  const created = response?.event || state.events[state.events.length - 1];
+  refs.newEventName.value = "";
+  closeCreateEventModal();
+  if (created?.id) {
+    state.currentEventId = created.id;
+  }
+  saveSessionToStorage();
+  renderEventsPanel();
+  renderEventConfig();
+  await loadRemoteSnapshot();
+  showToast("Evento creado.");
+}
+
+async function renameCurrentEvent(name) {
+  const event = currentEvent();
+  if (!event) return;
+  const nextName = normalize(name);
+  if (!nextName) return showToast("El evento necesita un nombre.");
+  const response = await apiRequest("/api/events", {
+    method: "POST",
+    body: JSON.stringify({ action: "update", eventId: event.id, name: nextName }),
+  });
+  state.events = Array.isArray(response?.events) ? response.events : state.events;
+  renderEventsPanel();
+  renderEventConfig();
+  showToast("Evento actualizado.");
+}
+
+async function deleteEventById(eventId) {
+  const event = state.events.find((item) => item.id === eventId);
+  if (!event) return;
+
+  const response = await apiRequest("/api/events", {
+    method: "POST",
+    body: JSON.stringify({ action: "delete", eventId }),
+  });
+
+  state.events = Array.isArray(response?.events) ? response.events : [];
+  if (state.currentEventId === eventId) {
+    clearRemoteState();
+    state.currentEventId = state.events[0]?.id || "";
+    if (!state.currentEventId) {
+      resetLocalEventState();
+    }
+  }
+  saveSessionToStorage();
+  render();
+  if (state.currentEventId) {
+    await loadRemoteSnapshot();
+  }
+  showToast(`Evento "${event.name}" eliminado.`);
+}
+
+function renderAccountPanel() {
+  const user = state.session.user;
+  refs.sessionBadgeName.textContent = user?.name || "Sin sesion";
+  refs.sessionBadgeEmail.textContent = user?.email || "";
+  refs.sessionBadge.classList.toggle("hidden", !user);
+  refs.logoutBtn.classList.toggle("hidden", !user);
+}
+
+function renderEventsPanel() {
+  refs.eventCountBadge.textContent = String(state.events.length);
+  refs.eventList.innerHTML = "";
+  if (!state.events.length) {
+    refs.eventList.className = "event-list empty-state";
+    refs.eventList.textContent = "Todavia no creaste eventos.";
+    return;
+  }
+
+  refs.eventList.className = "event-list";
+  state.events.forEach((event) => {
+    const card = document.createElement("div");
+    card.className = `event-item${event.id === state.currentEventId ? " active" : ""}`;
+    card.innerHTML = `
+      <div class="event-item-head">
+        <strong>${event.name}</strong>
+        <small>${event.tableCount} mesas · ${event.guestCount} invitados</small>
+      </div>
+      <div class="event-item-actions">
+        <button type="button" class="event-manage-btn">Gestionar</button>
+        <button type="button" class="event-delete-btn">Borrar</button>
+      </div>
+    `;
+    const manageBtn = card.querySelector(".event-manage-btn");
+    const deleteBtn = card.querySelector(".event-delete-btn");
+    manageBtn.addEventListener("click", async () => {
+      await selectEvent(event.id);
+      openManagementModal();
+    });
+    deleteBtn.addEventListener("click", async () => {
+      try {
+        await deleteEventById(event.id);
+      } catch (err) {
+        showToast(parseApiError(err, "No se pudo borrar el evento."));
+      }
+    });
+    refs.eventList.appendChild(card);
+  });
+}
+
+function renderEventConfig() {
+  const event = currentEvent();
+  refs.topbarEventMeta.textContent = event ? `${event.name} · ${state.tables.length} mesas` : "Sin evento seleccionado";
+  refs.appTitle.textContent = event ? `Organizador de Mesas · ${event.name}` : "Organizador de Mesas";
+
+  if (!event) {
+    refs.eventNameInput.value = "";
+    refs.eventSummary.textContent = "Selecciona un evento para configurarlo.";
+    closeManagementModal();
+    return;
+  }
+
+  refs.eventNameInput.value = event.name;
+  const capacityTotal = state.tables.reduce((sum, table) => sum + table.capacity, 0);
+  refs.eventSummary.textContent = `${state.tables.length} mesas configuradas · capacidad total ${capacityTotal} personas.`;
+}
+
+function updateActionAvailability() {
+  const hasEvent = Boolean(state.currentEventId);
+  refs.fileInput.disabled = !hasEvent;
+  refs.csvInput.disabled = !hasEvent;
+  refs.addGuestBtn.disabled = !hasEvent;
+  refs.exportBtn.disabled = !hasEvent || !state.guests.length;
+  refs.fileInput.closest(".file-input").classList.toggle("disabled", !hasEvent);
+  refs.csvInput.closest(".file-input").classList.toggle("disabled", !hasEvent);
 }
 
 function addGuest({ name, gender, confirmed, sourceRow, initialTable }) {
@@ -298,8 +653,6 @@ function parseWorkbook(arrayBuffer) {
   }
 
   state.guests = [];
-  state.tables = [];
-  state.tableOrder = [];
 
   let row = START_ROW;
   while (row < 5000) {
@@ -312,7 +665,7 @@ function parseWorkbook(arrayBuffer) {
     const mTable = ws[`I${row}`]?.v;
 
     const hasCore = [hName, hLast, mName, mLast, ws[`F${row}`]?.v, hTable, mTable].some(
-      (v) => normalize(v) !== "",
+      (value) => normalize(value) !== "",
     );
     if (!hasCore) {
       if (row > 220) break;
@@ -340,16 +693,25 @@ function parseWorkbook(arrayBuffer) {
   if (!state.guests.length) {
     throw new Error("No se detectaron invitados en el formato esperado.");
   }
+}
 
-  showToast(`Excel cargado: ${state.guests.length} invitados detectados`);
+function syncTableOrder() {
+  const idToNumber = new Map(state.tables.map((table) => [table.id, table.number]));
+  const validIds = new Set(idToNumber.keys());
+  const kept = state.tableOrder.filter((id) => validIds.has(id));
+  const missing = state.tables
+    .map((table) => table.id)
+    .filter((id) => !kept.includes(id))
+    .sort((a, b) => (idToNumber.get(a) || 0) - (idToNumber.get(b) || 0));
+  state.tableOrder = [...kept, ...missing];
 }
 
 function inferTableType(guests) {
-  const males = guests.filter((g) => g.gender === "H").length;
-  const females = guests.filter((g) => g.gender === "M").length;
-  if (males === 0 && females === 0) return null;
-  if (males > 0 && females === 0) return "men";
-  if (females > 0 && males === 0) return "women";
+  const men = guests.filter((guest) => guest.gender === "H").length;
+  const women = guests.filter((guest) => guest.gender === "M").length;
+  if (!men && !women) return null;
+  if (men && !women) return "men";
+  if (women && !men) return "women";
   return "mixed";
 }
 
@@ -359,60 +721,72 @@ function tableLabel(type) {
   return "Mixta";
 }
 
-function syncTableOrder() {
-  const idToNumber = new Map(state.tables.map((t) => [t.id, t.number]));
-  const validIds = new Set(idToNumber.keys());
-  const kept = state.tableOrder.filter((id) => validIds.has(id));
-  const missing = state.tables
-    .map((t) => t.id)
-    .filter((id) => !kept.includes(id))
-    .sort((a, b) => (idToNumber.get(a) || 0) - (idToNumber.get(b) || 0));
-  state.tableOrder = [...kept, ...missing];
-}
-
-function setConsecutiveTables(maxNumber, capacityMap = new Map()) {
-  const max = Math.max(1, Number(maxNumber) || 1);
-  state.tables = [];
-  for (let n = 1; n <= max; n += 1) {
-    const cap = capacityMap.has(n) ? Number(capacityMap.get(n)) : n === 1 ? 20 : 10;
-    state.tables.push({ id: `t-${n}`, number: n, name: `Mesa ${n}`, type: null, capacity: cap });
-  }
-  syncTableOrder();
-}
-
-function rebuildTablesFromCurrentAssignments() {
-  const nums = state.guests
-    .map((g) => (g.tableId ? Number(g.tableId.split("-")[1]) : null))
-    .filter((n) => Number.isFinite(n) && n > 0);
-  const maxTable = nums.length ? Math.max(...nums) : 1;
-  setConsecutiveTables(maxTable);
-}
-
-function addMoreTables(count = 3) {
-  const lastNumber = state.tables.length ? Math.max(...state.tables.map((t) => t.number)) : 0;
-  for (let i = 1; i <= count; i += 1) {
-    const number = lastNumber + i;
-    state.tables.push({ id: `t-${number}`, number, name: `Mesa ${number}`, type: null, capacity: 10 });
-  }
-  syncTableOrder();
-}
-
-function ensureTable(tableNumber, capacity = null) {
-  const existing = state.tables.find((t) => t.number === tableNumber);
+function ensureTable(number, capacity = 10) {
+  const existing = state.tables.find((table) => table.number === number);
   if (existing) {
-    if (capacity && Number.isFinite(capacity)) existing.capacity = Number(capacity);
+    existing.capacity = Number.isFinite(Number(capacity)) ? Number(capacity) : existing.capacity;
     return existing;
   }
-  const cap = Number.isFinite(capacity) ? Number(capacity) : tableNumber === 1 ? 20 : 10;
-  const table = { id: `t-${tableNumber}`, number: tableNumber, name: `Mesa ${tableNumber}`, type: null, capacity: cap };
+  const table = {
+    id: `t-${number}`,
+    number,
+    name: `Mesa ${number}`,
+    type: null,
+    capacity: Number.isFinite(Number(capacity)) ? Number(capacity) : 10,
+  };
   state.tables.push(table);
   syncTableOrder();
   return table;
 }
 
+function addTables(count, capacity) {
+  const nextCount = Math.max(1, Math.trunc(Number(count) || 1));
+  const nextCapacity = Math.max(1, Math.trunc(Number(capacity) || 10));
+  const lastNumber = state.tables.length ? Math.max(...state.tables.map((table) => table.number)) : 0;
+  for (let index = 1; index <= nextCount; index += 1) {
+    const number = lastNumber + index;
+    state.tables.push({
+      id: `t-${number}`,
+      number,
+      name: `Mesa ${number}`,
+      type: null,
+      capacity: nextCapacity,
+    });
+  }
+  syncTableOrder();
+  render();
+  scheduleRemoteSave();
+}
+
+function rebuildTablesFromCurrentAssignments() {
+  const usedNumbers = state.guests
+    .map((guest) => (guest.tableId ? Number(guest.tableId.split("-")[1]) : null))
+    .filter((number) => Number.isFinite(number) && number > 0);
+  if (!usedNumbers.length) {
+    if (!state.tables.length) {
+      addTables(1, 10);
+    }
+    return;
+  }
+  const max = Math.max(...usedNumbers);
+  const newTables = [];
+  for (let number = 1; number <= max; number += 1) {
+    const existing = state.tables.find((table) => table.number === number);
+    newTables.push({
+      id: `t-${number}`,
+      number,
+      name: existing?.name || `Mesa ${number}`,
+      type: existing?.type || null,
+      capacity: existing?.capacity || 10,
+    });
+  }
+  state.tables = newTables;
+  syncTableOrder();
+}
+
 function fitsTable(guest, table) {
   if (!table) return true;
-  const current = state.guests.filter((g) => g.tableId === table.id).length;
+  const current = state.guests.filter((candidate) => candidate.tableId === table.id).length;
   if (current >= table.capacity) return false;
   if (table.type === "men" && guest.gender !== "H") return false;
   if (table.type === "women" && guest.gender !== "M") return false;
@@ -420,87 +794,86 @@ function fitsTable(guest, table) {
 }
 
 function moveGuest(guestId, tableId) {
-  const guest = state.guests.find((g) => g.id === guestId);
-  const table = state.tables.find((t) => t.id === tableId);
+  const guest = state.guests.find((item) => item.id === guestId);
+  const table = state.tables.find((item) => item.id === tableId);
   if (!guest) return;
-
   if (tableId && !table) return;
   if (table && !fitsTable(guest, table)) {
     showToast("No entra por capacidad o restriccion de genero.");
     return;
   }
-
   guest.tableId = tableId || null;
   render();
   scheduleRemoteSave();
 }
 
 function deleteGuest(guestId) {
-  const before = state.guests.length;
-  state.guests = state.guests.filter((g) => g.id !== guestId);
-  if (state.guests.length !== before) {
-    showToast("Invitado descartado.");
-    render();
-    scheduleRemoteSave();
-  }
+  const nextGuests = state.guests.filter((guest) => guest.id !== guestId);
+  if (nextGuests.length === state.guests.length) return;
+  state.guests = nextGuests;
+  render();
+  scheduleRemoteSave();
+  showToast("Invitado descartado.");
 }
 
 function deleteTable(tableId) {
-  const table = state.tables.find((t) => t.id === tableId);
+  const table = state.tables.find((item) => item.id === tableId);
   if (!table) return;
-
-  const assignedCount = state.guests.filter((g) => g.tableId === tableId).length;
-  if (assignedCount > 0) {
+  const assigned = state.guests.filter((guest) => guest.tableId === tableId).length;
+  if (assigned > 0) {
     showToast("Solo se puede borrar una mesa vacia.");
     return;
   }
-
-  state.tables = state.tables.filter((t) => t.id !== tableId);
+  state.tables = state.tables.filter((item) => item.id !== tableId);
   state.tableOrder = state.tableOrder.filter((id) => id !== tableId);
   render();
-  showToast(`${table.name} eliminada.`);
   scheduleRemoteSave();
+  showToast(`${table.name} eliminada.`);
 }
 
 function renameTableNumber(tableId, nextNumberRaw) {
-  const table = state.tables.find((t) => t.id === tableId);
+  const table = state.tables.find((item) => item.id === tableId);
   if (!table) return false;
-
   const nextNumber = Math.trunc(Number(nextNumberRaw));
   if (!Number.isFinite(nextNumber) || nextNumber <= 0) {
     showToast("El numero de mesa debe ser un entero mayor a 0.");
     return false;
   }
-
   if (table.number === nextNumber) return true;
-
-  const duplicate = state.tables.find((t) => t.id !== tableId && t.number === nextNumber);
-  if (duplicate) {
+  if (state.tables.some((item) => item.id !== tableId && item.number === nextNumber)) {
     showToast(`La mesa ${nextNumber} ya existe.`);
     return false;
   }
-
   const oldId = table.id;
   const oldNumber = table.number;
-  const newId = `t-${nextNumber}`;
   const hadDefaultName = normalize(table.name) === `Mesa ${oldNumber}`;
-
   table.number = nextNumber;
-  table.id = newId;
+  table.id = `t-${nextNumber}`;
   if (hadDefaultName) {
     table.name = `Mesa ${nextNumber}`;
   }
-
-  state.guests.forEach((g) => {
-    if (g.tableId === oldId) g.tableId = newId;
+  state.guests.forEach((guest) => {
+    if (guest.tableId === oldId) guest.tableId = table.id;
   });
-  state.tableOrder = state.tableOrder.map((id) => (id === oldId ? newId : id));
-  if (state.dragTableId === oldId) state.dragTableId = newId;
+  state.tableOrder = state.tableOrder.map((id) => (id === oldId ? table.id : id));
+  if (state.dragTableId === oldId) state.dragTableId = table.id;
   syncTableOrder();
+  return true;
+}
+
+function updateTableSettings(tableId, payload) {
+  const table = state.tables.find((item) => item.id === tableId);
+  if (!table) return;
+  const nextCapacity = Math.max(1, Math.trunc(Number(payload.capacity) || 0));
+  if (!nextCapacity) {
+    showToast("La capacidad debe ser mayor a 0.");
+    return;
+  }
+  table.name = normalize(payload.name) || `Mesa ${table.number}`;
+  table.capacity = nextCapacity;
   render();
   scheduleRemoteSave();
-  showToast(`Mesa renumerada a ${nextNumber}.`);
-  return true;
+  showToast("Mesa actualizada.");
 }
 
 function enableTableNumberInlineEdit(titleEl, tableId) {
@@ -508,18 +881,11 @@ function enableTableNumberInlineEdit(titleEl, tableId) {
 
   const startEdit = () => {
     if (editing) return;
-    const table = state.tables.find((t) => t.id === tableId);
+    const table = state.tables.find((item) => item.id === tableId);
     if (!table) return;
     editing = true;
     titleEl.classList.add("editing");
-
     const numberSpan = titleEl.querySelector(".table-number-display");
-    if (!numberSpan) {
-      editing = false;
-      titleEl.classList.remove("editing");
-      return;
-    }
-
     const input = document.createElement("input");
     input.type = "number";
     input.min = "1";
@@ -534,24 +900,26 @@ function enableTableNumberInlineEdit(titleEl, tableId) {
       titleEl.classList.remove("editing");
       if (mode === "save") {
         const ok = renameTableNumber(tableId, input.value);
-        if (ok) return;
+        if (ok) {
+          render();
+          scheduleRemoteSave();
+          return;
+        }
       }
-      const currentTable = state.tables.find((t) => t.id === tableId) || table;
-      const restored = document.createElement("span");
-      restored.className = "table-number-display";
-      restored.textContent = String(currentTable.number);
-      if (input.isConnected) input.replaceWith(restored);
+      const restoreSpan = document.createElement("span");
+      restoreSpan.className = "table-number-display";
+      restoreSpan.textContent = String(table.number);
+      if (input.isConnected) input.replaceWith(restoreSpan);
     };
 
     input.addEventListener("blur", () => finish("save"));
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
         input.blur();
-        return;
       }
-      if (e.key === "Escape") {
-        e.preventDefault();
+      if (event.key === "Escape") {
+        event.preventDefault();
         finish("cancel");
       }
     });
@@ -561,21 +929,19 @@ function enableTableNumberInlineEdit(titleEl, tableId) {
     input.select();
   };
 
-  titleEl.addEventListener("click", (e) => {
-    e.preventDefault();
+  titleEl.addEventListener("click", (event) => {
+    event.preventDefault();
     startEdit();
   });
-  titleEl.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter" && e.key !== " ") return;
-    e.preventDefault();
+  titleEl.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
     startEdit();
   });
 }
 
 function splitGuestName(fullName) {
-  const parts = normalize(fullName)
-    .split(/\s+/)
-    .filter(Boolean);
+  const parts = normalize(fullName).split(/\s+/).filter(Boolean);
   if (!parts.length) return { firstName: "", lastName: "" };
   if (parts.length === 1) return { firstName: parts[0], lastName: "" };
   return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
@@ -607,8 +973,8 @@ function askGuestData(initialData = null, options = {}) {
       resolve(null);
     };
 
-    const submitHandler = (e) => {
-      e.preventDefault();
+    const submitHandler = (event) => {
+      event.preventDefault();
       const firstName = normalize(refs.guestFirstName.value);
       const lastName = normalize(refs.guestLastName.value);
       const gender = normalize(refs.guestGender.value).toUpperCase();
@@ -628,50 +994,41 @@ function askGuestData(initialData = null, options = {}) {
 }
 
 async function addGuestManually() {
-  const data = await askGuestData(
-    { confirmed: true },
-    { title: "Agregar invitado", submitLabel: "Agregar" },
-  );
+  if (!state.currentEventId) return showToast("Primero crea o selecciona un evento.");
+  const data = await askGuestData({ confirmed: true }, { title: "Agregar invitado", submitLabel: "Agregar" });
   if (!data) return;
-
-  state.guests.push({
-    id: crypto.randomUUID(),
+  addGuest({
     name: data.fullName,
     gender: data.gender,
     confirmed: data.confirmed,
     sourceRow: null,
-    tableId: null,
+    initialTable: null,
   });
-  showToast("Invitado agregado.");
   render();
   scheduleRemoteSave();
+  showToast("Invitado agregado.");
 }
 
 async function editGuest(guestId) {
-  const guest = state.guests.find((g) => g.id === guestId);
+  const guest = state.guests.find((item) => item.id === guestId);
   if (!guest) return;
-
   const data = await askGuestData(
     { fullName: guest.name, gender: guest.gender, confirmed: guest.confirmed },
     { title: "Editar invitado", submitLabel: "Guardar" },
   );
   if (!data) return;
-
   guest.name = data.fullName;
   guest.gender = data.gender;
   guest.confirmed = data.confirmed;
-  showToast("Invitado actualizado.");
   render();
   scheduleRemoteSave();
+  showToast("Invitado actualizado.");
 }
 
 function filteredGuests() {
-  return state.guests.filter((g) => {
-    if (state.filter.gender !== "all" && g.gender !== state.filter.gender) return false;
-    if (state.filter.search) {
-      const q = state.filter.search.toLowerCase();
-      if (!g.name.toLowerCase().includes(q)) return false;
-    }
+  return state.guests.filter((guest) => {
+    if (state.filter.gender !== "all" && guest.gender !== state.filter.gender) return false;
+    if (state.filter.search && !guest.name.toLowerCase().includes(state.filter.search.toLowerCase())) return false;
     return true;
   });
 }
@@ -682,12 +1039,12 @@ function guestCard(guest, options = {}) {
   el.className = `guest ${guest.gender === "H" ? "male" : "female"}`;
   el.draggable = true;
   el.dataset.guestId = guest.id;
-  const meta = `${guest.gender === "H" ? "Hombre" : "Mujer"}${guest.confirmed ? "" : " - no confirmado"}`;
+  const meta = `${guest.gender === "H" ? "Hombre" : "Mujer"}${guest.confirmed ? "" : " · no confirmado"}`;
   const editButton = allowEdit
     ? '<button class="guest-edit" type="button" aria-label="Editar invitado" title="Editar invitado">Editar</button>'
     : "";
   const removeButton = allowDelete
-    ? '<button class="guest-remove" type="button" aria-label="Descartar invitado" title="Descartar invitado">🗑</button>'
+    ? '<button class="guest-remove" type="button" aria-label="Descartar invitado" title="Descartar invitado">Borrar</button>'
     : "";
   el.innerHTML = `
     <div class="guest-head">
@@ -709,25 +1066,25 @@ function guestCard(guest, options = {}) {
   });
   if (allowEdit) {
     const editBtn = el.querySelector(".guest-edit");
-    editBtn.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+    editBtn.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
     });
-    editBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+    editBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       editGuest(guest.id);
     });
   }
   if (allowDelete) {
     const removeBtn = el.querySelector(".guest-remove");
-    removeBtn.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+    removeBtn.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
     });
-    removeBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+    removeBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       deleteGuest(guest.id);
     });
   }
@@ -735,13 +1092,13 @@ function guestCard(guest, options = {}) {
 }
 
 function applyDropzoneBehavior(element, tableId) {
-  element.addEventListener("dragover", (e) => {
-    e.preventDefault();
+  element.addEventListener("dragover", (event) => {
+    event.preventDefault();
     element.classList.add("drag-over");
   });
   element.addEventListener("dragleave", () => element.classList.remove("drag-over"));
-  element.addEventListener("drop", (e) => {
-    e.preventDefault();
+  element.addEventListener("drop", (event) => {
+    event.preventDefault();
     element.classList.remove("drag-over");
     if (state.dragType !== "guest" || !state.dragGuestId) return;
     moveGuest(state.dragGuestId, tableId || null);
@@ -774,18 +1131,17 @@ function applyTableReorderBehavior(card, tableId, handle) {
     state.dragType = null;
     card.classList.remove("table-dragging");
   });
-
-  card.addEventListener("dragover", (e) => {
+  card.addEventListener("dragover", (event) => {
     if (state.dragType !== "table") return;
-    e.preventDefault();
+    event.preventDefault();
     card.classList.add("table-drop-over");
   });
   card.addEventListener("dragleave", () => {
     card.classList.remove("table-drop-over");
   });
-  card.addEventListener("drop", (e) => {
+  card.addEventListener("drop", (event) => {
     if (state.dragType !== "table" || !state.dragTableId) return;
-    e.preventDefault();
+    event.preventDefault();
     card.classList.remove("table-drop-over");
     moveTableBefore(state.dragTableId, tableId);
     render();
@@ -796,91 +1152,155 @@ function applyTableReorderBehavior(card, tableId, handle) {
 function renderStats() {
   const visible = filteredGuests();
   const total = visible.length;
-  const assigned = visible.filter((g) => g.tableId).length;
+  const assigned = visible.filter((guest) => guest.tableId).length;
   const unassigned = total - assigned;
-  const hm = visible.filter((g) => g.gender === "H").length;
-  const wm = visible.filter((g) => g.gender === "M").length;
-  const confirmed = visible.filter((g) => g.confirmed).length;
-  const unconfirmed = total - confirmed;
-  refs.stats.innerHTML = [
-    `<strong>Visibles:</strong> ${total}`,
-    `<strong>Asignados:</strong> ${assigned}`,
-    `<strong>Sin asignar:</strong> ${unassigned}`,
-    `<strong>H/M:</strong> ${hm}/${wm}`,
-    `<strong>Confirmados:</strong> ${confirmed}`,
-    `<strong>Sin confirmar:</strong> ${unconfirmed}`,
-  ].join("<br>");
+  const men = visible.filter((guest) => guest.gender === "H").length;
+  const women = visible.filter((guest) => guest.gender === "M").length;
+  const confirmed = visible.filter((guest) => guest.confirmed).length;
+  refs.stats.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card">
+        <strong>${total}</strong>
+        <span>Invitados visibles</span>
+      </div>
+      <div class="stat-card">
+        <strong>${assigned}</strong>
+        <span>Asignados</span>
+      </div>
+      <div class="stat-card">
+        <strong>${unassigned}</strong>
+        <span>Sin asignar</span>
+      </div>
+      <div class="stat-card">
+        <strong>${state.tables.length}</strong>
+        <span>Mesas</span>
+      </div>
+      <div class="stat-card">
+        <strong>${men}/${women}</strong>
+        <span>Hombres / Mujeres</span>
+      </div>
+      <div class="stat-card">
+        <strong>${confirmed}</strong>
+        <span>Confirmados</span>
+      </div>
+    </div>
+  `;
 }
 
 function renderUnassigned(visibleGuests) {
   refs.unassignedList.innerHTML = "";
-  const list = visibleGuests.filter((g) => !g.tableId);
-  list.sort((a, b) => a.name.localeCompare(b.name, "es"));
-  list.forEach((g) => refs.unassignedList.appendChild(guestCard(g, { allowDelete: true })));
+  const list = visibleGuests.filter((guest) => !guest.tableId).sort((a, b) => a.name.localeCompare(b.name, "es"));
+  list.forEach((guest) => refs.unassignedList.appendChild(guestCard(guest, { allowDelete: true })));
+}
+
+function renderTableSettings(card, table) {
+  const form = document.createElement("form");
+  form.className = "table-settings";
+  form.innerHTML = `
+    <div class="table-settings-top">
+      <label>
+        Nombre
+        <input name="name" type="text" value="${table.name}" />
+      </label>
+      <label>
+        Capacidad
+        <input name="capacity" type="number" min="1" step="1" value="${table.capacity}" />
+      </label>
+    </div>
+    <div class="table-settings-actions">
+      <button type="submit" class="save-table-settings">Guardar mesa</button>
+    </div>
+  `;
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const fd = new FormData(form);
+    updateTableSettings(table.id, {
+      name: fd.get("name"),
+      capacity: fd.get("capacity"),
+    });
+  });
+  card.appendChild(form);
 }
 
 function renderTables(visibleGuests) {
   refs.tablesGrid.innerHTML = "";
   syncTableOrder();
+
+  if (!state.currentEventId) {
+    refs.tablesGrid.innerHTML = '<div class="empty-board">Crea o selecciona un evento para empezar.</div>';
+    return;
+  }
+
+  if (!state.tables.length) {
+    refs.tablesGrid.innerHTML = '<div class="empty-board">Todavia no hay mesas. Agrega una desde el panel de configuracion.</div>';
+    return;
+  }
+
   state.tableOrder.forEach((tableId) => {
-      const table = state.tables.find((t) => t.id === tableId);
-      if (!table) return;
-      const assigned = visibleGuests
-        .filter((g) => g.tableId === table.id)
-        .sort((a, b) => a.name.localeCompare(b.name, "es"));
-      const count = assigned.length;
-      const cls = count > table.capacity ? "bad" : count === table.capacity ? "ok" : count >= table.capacity - 1 ? "warn" : "";
-      const menCount = assigned.filter((g) => g.gender === "H").length;
-      const womenCount = assigned.filter((g) => g.gender === "M").length;
-      const displayType = inferTableType(assigned);
-      const typePill = displayType
-        ? `<span class="type-pill ${displayType}">${tableLabel(displayType)}</span>`
-        : "";
-      const bigPill = table.capacity === 20 ? '<span class="type-pill mixed">Mesa grande (20)</span>' : "";
+    const table = state.tables.find((item) => item.id === tableId);
+    if (!table) return;
+    const assigned = visibleGuests
+      .filter((guest) => guest.tableId === table.id)
+      .sort((a, b) => a.name.localeCompare(b.name, "es"));
+    const count = assigned.length;
+    const cls =
+      count > table.capacity ? "bad" : count === table.capacity ? "ok" : count >= table.capacity - 1 ? "warn" : "";
+    const menCount = assigned.filter((guest) => guest.gender === "H").length;
+    const womenCount = assigned.filter((guest) => guest.gender === "M").length;
+    const displayType = inferTableType(assigned);
+    const typePill = displayType ? `<span class="type-pill ${displayType}">${tableLabel(displayType)}</span>` : "";
 
-      const card = document.createElement("article");
-      card.className = `table-card ${cls}`;
-      card.dataset.tableId = table.id;
-      card.innerHTML = `
-        <div class="table-head">
-          <strong class="table-title-trigger" role="button" tabindex="0" title="Click para editar numero de mesa">
-            Mesa <span class="table-number-display">${table.number}</span>
-          </strong>
-          <div class="table-actions">
-            <button class="table-remove" type="button" aria-label="Eliminar mesa" title="Eliminar mesa">Eliminar</button>
-            <span class="table-drag-handle" title="Mover mesa en el layout">Mover</span>
-          </div>
-          ${typePill || bigPill}
+    const card = document.createElement("article");
+    card.className = `table-card ${cls}`;
+    card.dataset.tableId = table.id;
+    card.innerHTML = `
+      <div class="table-head">
+        <strong class="table-title-trigger" role="button" tabindex="0" title="Click para editar numero de mesa">
+          Mesa <span class="table-number-display">${table.number}</span>
+        </strong>
+        ${typePill}
+        <div class="table-actions">
+          <button class="table-remove" type="button" aria-label="Eliminar mesa" title="Eliminar mesa">Eliminar</button>
+          <span class="table-drag-handle" title="Mover mesa en el layout">Mover</span>
         </div>
-        <div class="table-meta">${count}/${table.capacity} | H:${menCount} M:${womenCount}</div>
-      `;
-      const handle = card.querySelector(".table-drag-handle");
-      const removeBtn = card.querySelector(".table-remove");
-      const titleTrigger = card.querySelector(".table-title-trigger");
-      applyTableReorderBehavior(card, table.id, handle);
-      enableTableNumberInlineEdit(titleTrigger, table.id);
-      removeBtn.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        deleteTable(table.id);
-      });
+      </div>
+      <div class="table-meta">${count}/${table.capacity} · H:${menCount} · M:${womenCount}</div>
+    `;
 
-      const zone = document.createElement("div");
-      zone.className = "guest-list dropzone";
-      zone.dataset.tableId = table.id;
-      assigned.forEach((g) => zone.appendChild(guestCard(g)));
-      applyDropzoneBehavior(zone, table.id);
-      card.appendChild(zone);
-      refs.tablesGrid.appendChild(card);
+    const handle = card.querySelector(".table-drag-handle");
+    const removeBtn = card.querySelector(".table-remove");
+    const titleTrigger = card.querySelector(".table-title-trigger");
+    applyTableReorderBehavior(card, table.id, handle);
+    enableTableNumberInlineEdit(titleTrigger, table.id);
+    removeBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      deleteTable(table.id);
     });
+
+    renderTableSettings(card, table);
+
+    const zone = document.createElement("div");
+    zone.className = "guest-list dropzone";
+    zone.dataset.tableId = table.id;
+    assigned.forEach((guest) => zone.appendChild(guestCard(guest)));
+    applyDropzoneBehavior(zone, table.id);
+    card.appendChild(zone);
+    refs.tablesGrid.appendChild(card);
+  });
 }
 
 function render() {
+  syncCurrentEventSummary();
   const visible = filteredGuests();
+  renderAccountPanel();
+  renderEventsPanel();
+  renderEventConfig();
   renderStats();
   renderUnassigned(visible);
   renderTables(visible);
   applyDropzoneBehavior(refs.unassignedList, null);
+  updateActionAvailability();
 }
 
 function exportCsv() {
@@ -888,23 +1308,32 @@ function exportCsv() {
   state.guests
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name, "es"))
-    .forEach((g) => {
-      const table = state.tables.find((t) => t.id === g.tableId);
-      rows.push(["INVITADO", g.name, g.gender, g.confirmed ? "ok" : "", table ? table.number : "", g.sourceRow, ""]);
+    .forEach((guest) => {
+      const table = state.tables.find((item) => item.id === guest.tableId);
+      rows.push([
+        "INVITADO",
+        guest.name,
+        guest.gender,
+        guest.confirmed ? "ok" : "",
+        table ? table.number : "",
+        guest.sourceRow,
+        "",
+      ]);
     });
   state.tables
     .slice()
     .sort((a, b) => a.number - b.number)
-    .forEach((t) => {
-      rows.push(["MESA", "", "", "", t.number, "", t.capacity]);
+    .forEach((table) => {
+      rows.push(["MESA", "", "", "", table.number, "", table.capacity]);
     });
-  const csv = rows.map((r) => r.map((v) => `"${String(v ?? "").replaceAll("\"", "\"\"")}"`).join(",")).join("\n");
+
+  const csv = rows.map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "mesas_asignacion.csv";
-  a.click();
-  URL.revokeObjectURL(a.href);
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "mesas_asignacion.csv";
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
 
 function normalizeHeaderKey(key) {
@@ -917,9 +1346,7 @@ function normalizeHeaderKey(key) {
 }
 
 function getRowValue(row, aliases) {
-  const normalized = new Map(
-    Object.entries(row).map(([k, v]) => [normalizeHeaderKey(k), v]),
-  );
+  const normalized = new Map(Object.entries(row).map(([key, value]) => [normalizeHeaderKey(key), value]));
   for (const alias of aliases) {
     if (normalized.has(alias)) return normalized.get(alias);
   }
@@ -932,24 +1359,21 @@ function readAssignmentRows(text) {
     const ws = wb.Sheets[wb.SheetNames[0]];
     return XLSX.utils.sheet_to_json(ws, { defval: "" });
   };
-
   const rows = parseWith();
   if (!rows.length) return rows;
-
   const firstKeys = Object.keys(rows[0]);
   if (firstKeys.length === 1 && /[;\t]/.test(firstKeys[0])) {
     if (firstKeys[0].includes(";")) return parseWith({ FS: ";" });
     if (firstKeys[0].includes("\t")) return parseWith({ FS: "\t" });
   }
-
   return rows;
 }
 
 function toNumberOrNull(value) {
   const raw = normalize(value).replace(",", ".");
   if (!raw) return null;
-  const num = Number(raw);
-  return Number.isFinite(num) ? num : null;
+  const number = Number(raw);
+  return Number.isFinite(number) ? number : null;
 }
 
 function normalizeGender(value) {
@@ -974,7 +1398,6 @@ function bootstrapGuestsFromAssignmentRows(rows) {
     const genero = normalizeGender(getRowValue(row, ["genero"]));
     const nombre = normalize(getRowValue(row, ["nombre"]));
     if (!nombre || !genero) return;
-
     addGuest({
       name: nombre,
       gender: genero,
@@ -995,25 +1418,25 @@ function importAssignmentCsv(text) {
     }
   }
 
-  state.guests.forEach((g) => {
-    g.tableId = null;
+  state.guests.forEach((guest) => {
+    guest.tableId = null;
   });
-  state.tables = [];
 
   const byRowGender = new Map();
   const byNameGender = new Map();
-  state.guests.forEach((g) => {
-    if (Number.isFinite(g.sourceRow)) {
-      byRowGender.set(`${g.sourceRow}|${g.gender}`, g);
+  state.guests.forEach((guest) => {
+    if (Number.isFinite(guest.sourceRow)) {
+      byRowGender.set(`${guest.sourceRow}|${guest.gender}`, guest);
     }
-    const key = `${g.name.toLowerCase()}|${g.gender}`;
+    const key = `${guest.name.toLowerCase()}|${guest.gender}`;
     if (!byNameGender.has(key)) byNameGender.set(key, []);
-    byNameGender.get(key).push(g);
+    byNameGender.get(key).push(guest);
   });
 
   let assignedCount = 0;
   const mesaDefs = new Map();
   const usedTableNumbers = new Set();
+
   rows.forEach((row) => {
     const tipo = normalize(getRowValue(row, ["tiporegistro", "tipo"])).toUpperCase();
     const genero = normalizeGender(getRowValue(row, ["genero"]));
@@ -1024,7 +1447,7 @@ function importAssignmentCsv(text) {
 
     if (tipo === "MESA") {
       if (mesa !== null && mesa > 0) {
-        mesaDefs.set(mesa, capacidad !== null ? capacidad : mesa === 1 ? 20 : 10);
+        mesaDefs.set(mesa, capacidad !== null ? capacidad : 10);
       }
       return;
     }
@@ -1039,73 +1462,63 @@ function importAssignmentCsv(text) {
     if (!guest && nombre) {
       const key = `${nombre.toLowerCase()}|${genero}`;
       const candidates = byNameGender.get(key) || [];
-      guest = candidates.find((c) => !c.tableId) || candidates[0] || null;
+      guest = candidates.find((candidate) => !candidate.tableId) || candidates[0] || null;
     }
     if (!guest) return;
 
     if (mesa !== null && mesa > 0) {
       guest.tableId = `t-${mesa}`;
       usedTableNumbers.add(mesa);
-    } else {
-      guest.tableId = null;
     }
     assignedCount += 1;
   });
 
-  if (mesaDefs.size > 0) {
-    const maxFromDefs = Math.max(...mesaDefs.keys());
-    const maxFromUsed = usedTableNumbers.size ? Math.max(...usedTableNumbers) : 1;
-    const max = Math.max(maxFromDefs, maxFromUsed, 1);
-    setConsecutiveTables(max, mesaDefs);
-  } else {
-    const max = usedTableNumbers.size ? Math.max(...usedTableNumbers) : 1;
-    setConsecutiveTables(max);
+  if (mesaDefs.size) {
+    mesaDefs.forEach((capacity, mesa) => {
+      ensureTable(mesa, capacity);
+    });
   }
-
-  showToast(`CSV cargado: ${assignedCount} asignaciones aplicadas.`);
+  if (usedTableNumbers.size) {
+    [...usedTableNumbers].forEach((mesa) => ensureTable(mesa, 10));
+  }
+  syncTableOrder();
   render();
   scheduleRemoteSave();
+  showToast(`CSV cargado: ${assignedCount} asignaciones aplicadas.`);
 }
 
-refs.fileInput.addEventListener("change", async (e) => {
-  const file = e.target.files?.[0];
+refs.fileInput.addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
   if (!file) return;
-  const data = await file.arrayBuffer();
   try {
+    const data = await file.arrayBuffer();
     parseWorkbook(data);
     rebuildTablesFromCurrentAssignments();
     render();
     scheduleRemoteSave();
+    showToast(`Excel cargado: ${state.guests.length} invitados detectados.`);
   } catch (err) {
-    showToast(err.message || "Error leyendo Excel");
+    showToast(err.message || "Error leyendo Excel.");
   } finally {
-    e.target.value = "";
+    event.target.value = "";
   }
 });
 
-refs.csvInput.addEventListener("change", async (e) => {
-  const file = e.target.files?.[0];
+refs.csvInput.addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
   if (!file) return;
   try {
     const text = await file.text();
     importAssignmentCsv(text);
   } catch (err) {
-    showToast(err.message || "Error leyendo CSV");
+    showToast(err.message || "Error leyendo CSV.");
   } finally {
-    e.target.value = "";
+    event.target.value = "";
   }
 });
 
-refs.addGuestBtn.addEventListener("click", async () => {
-  await addGuestManually();
-});
-
-refs.addOneTableBtn.addEventListener("click", () => {
-  if (!state.guests.length) return showToast("Primero carga el Excel.");
-  addMoreTables(1);
-  render();
-  showToast("Se agrego 1 mesa mixta de 10.");
-  scheduleRemoteSave();
+refs.addGuestBtn.addEventListener("click", () => {
+  addGuestManually();
 });
 
 refs.exportBtn.addEventListener("click", () => {
@@ -1113,24 +1526,75 @@ refs.exportBtn.addEventListener("click", () => {
   exportCsv();
 });
 
-refs.searchInput.addEventListener("input", (e) => {
-  state.filter.search = e.target.value.trim();
+refs.searchInput.addEventListener("input", (event) => {
+  state.filter.search = event.target.value.trim();
   render();
 });
-refs.genderFilter.addEventListener("change", (e) => {
-  state.filter.gender = e.target.value;
+
+refs.genderFilter.addEventListener("change", (event) => {
+  state.filter.gender = event.target.value;
   render();
+});
+
+refs.logoutBtn.addEventListener("click", () => {
+  logout();
+});
+
+refs.openCreateEventBtn.addEventListener("click", () => {
+  openCreateEventModal();
+});
+
+refs.createEventClose.addEventListener("click", () => {
+  closeCreateEventModal();
+});
+
+refs.managementClose.addEventListener("click", () => {
+  closeManagementModal();
+});
+
+refs.createEventForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await createEvent(refs.newEventName.value);
+  } catch (err) {
+    showToast(parseApiError(err, "No se pudo crear el evento."));
+  }
+});
+
+refs.eventSettingsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await renameCurrentEvent(refs.eventNameInput.value);
+  } catch (err) {
+    showToast(parseApiError(err, "No se pudo actualizar el evento."));
+  }
+});
+
+refs.addTableForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!state.currentEventId) return;
+  addTables(1, refs.newTableCapacity.value);
+  showToast("Mesa agregada.");
+});
+
+refs.bulkTablesForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!state.currentEventId) return;
+  addTables(refs.bulkTableCount.value, refs.bulkTableCapacity.value);
+  showToast("Bloque de mesas agregado.");
 });
 
 async function init() {
   render();
-  const authed = await ensureAuthSession();
-  if (!authed) {
-    showToast("Sesion cancelada.");
-    return;
+  try {
+    await ensureSession();
+    render();
+    if (state.currentEventId) {
+      await loadRemoteSnapshot();
+    }
+  } catch (err) {
+    showToast(parseApiError(err, "No se pudo iniciar la aplicacion."));
   }
-  await loadRemoteSnapshot();
-  render();
 }
 
 init();

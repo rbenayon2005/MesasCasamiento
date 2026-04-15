@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "dev": "wrangler pages dev . --d1 DB",
+    "dev:3000": "wrangler pages dev . --port 3000 --d1 DB"
+  },
+  "devDependencies": {
+    "wrangler": "^4.66.0"
+  }
+}

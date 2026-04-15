@@ -9,60 +9,142 @@
   </head>
   <body>
     <header class="topbar">
-      <h1>Organizador de Mesas - Ariel Casamiento</h1>
-      <div class="actions">
-        <label class="file-input">
-          <input id="excelFile" type="file" accept=".xlsx,.xls" />
-          <span>Cargar Excel</span>
-        </label>
-        <label class="file-input">
-          <input id="csvFile" type="file" accept=".csv" />
-          <span>Cargar CSV asignacion</span>
-        </label>
-        <button id="addGuestBtn">Agregar invitado</button>
-        <button id="addOneTableBtn">+1 mesa</button>
-        <button id="exportBtn">Exportar CSV</button>
+      <div class="brand-block">
+        <span class="eyebrow">Planificador de eventos</span>
+        <h1 id="appTitle">Organizador de Mesas</h1>
+        <p id="topbarEventMeta" class="topbar-meta">Crea un evento y empieza a organizar mesas e invitados.</p>
+      </div>
+
+      <div class="topbar-side">
+        <div id="sessionBadge" class="session-badge hidden">
+          <strong id="sessionBadgeName">Sin sesion</strong>
+          <small id="sessionBadgeEmail"></small>
+        </div>
+        <button id="logoutBtn" type="button" class="secondary-action hidden">Cerrar sesion</button>
       </div>
     </header>
 
-    <section class="toolbar">
-      <div class="filters">
-        <h2>Filtros</h2>
-        <label>Buscar: <input id="searchInput" type="text" placeholder="Nombre o apellido" /></label>
-        <label>
-          Genero:
-          <select id="genderFilter">
-            <option value="all">Todos</option>
-            <option value="H">Hombres</option>
-            <option value="M">Mujeres</option>
-          </select>
-        </label>
-      </div>
-      <div class="stats" id="stats"></div>
-    </section>
+    <main class="app-shell">
+      <aside class="event-rail">
+        <section class="panel quick-actions">
+          <span class="eyebrow">Acciones</span>
+          <div class="actions-grid">
+            <label class="file-input action-tile">
+              <input id="excelFile" type="file" accept=".xlsx,.xls" />
+              <span>Cargar Excel</span>
+            </label>
+              <label class="file-input action-tile">
+                <input id="csvFile" type="file" accept=".csv" />
+                <span>Cargar CSV asignacion</span>
+              </label>
+              <button id="openCreateEventBtn" type="button" class="action-tile">Crear evento</button>
+              <button id="addGuestBtn" type="button" class="action-tile">Agregar invitado</button>
+              <button id="exportBtn" type="button" class="action-tile">Exportar CSV</button>
+            </div>
+          </section>
 
-    <main class="board">
-      <aside class="panel">
-        <h3>Sin asignar</h3>
-        <div id="unassignedList" class="dropzone guest-list" data-table-id=""></div>
+        <section class="panel rail-panel">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Tus eventos</span>
+              <h2>Eventos</h2>
+            </div>
+            <span id="eventCountBadge" class="inline-note">0</span>
+          </div>
+          <div id="eventList" class="event-list empty-state">Todavia no creaste eventos.</div>
+        </section>
+
+        <section class="panel stats-panel rail-panel">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Resumen</span>
+              <h2>Estado del evento</h2>
+            </div>
+          </div>
+          <div id="stats"></div>
+        </section>
       </aside>
-      <section class="tables-wrap">
-        <div id="tablesGrid" class="tables-grid"></div>
+
+      <section class="main-stage">
+        <section class="dashboard-grid">
+          <section class="panel filters-panel">
+            <div class="section-head">
+              <div>
+                <span class="eyebrow">Busqueda</span>
+                <h2>Filtros</h2>
+              </div>
+            </div>
+            <div class="filter-fields">
+              <label>
+                Buscar invitado
+                <input id="searchInput" type="text" placeholder="Nombre o apellido" />
+              </label>
+              <label>
+                Genero
+                <select id="genderFilter">
+                  <option value="all">Todos</option>
+                  <option value="H">Hombres</option>
+                  <option value="M">Mujeres</option>
+                </select>
+              </label>
+            </div>
+          </section>
+        </section>
+
+        <section class="board-shell">
+          <aside class="unassigned-stage">
+            <div class="tables-stage-head">
+              <div>
+                <span class="eyebrow">Pendientes</span>
+                <h2>Sin asignar</h2>
+              </div>
+            </div>
+            <div class="panel unassigned-panel">
+            <div id="unassignedList" class="dropzone guest-list" data-table-id=""></div>
+            </div>
+          </aside>
+
+          <section class="tables-stage">
+            <div class="tables-stage-head">
+              <div>
+                <span class="eyebrow">Plano</span>
+                <h2>Mesas</h2>
+              </div>
+            </div>
+            <div id="tablesGrid" class="tables-grid"></div>
+          </section>
+        </section>
       </section>
     </main>
 
     <div id="authModal" class="auth-modal hidden" role="dialog" aria-modal="true" aria-labelledby="authTitle">
       <form id="authForm" class="auth-card">
-        <h2 id="authTitle">Ingresar al organizador</h2>
+        <div class="auth-mode-switch" role="tablist" aria-label="Modo de acceso">
+          <button id="authModeLogin" type="button" class="auth-mode active">Ingresar</button>
+          <button id="authModeRegister" type="button" class="auth-mode">Registrarse</button>
+        </div>
+
+        <div class="auth-copy">
+          <h2 id="authTitle">Ingresar a tus eventos</h2>
+          <p id="authSubtitle">Entra con tu cuenta para administrar mesas y eventos.</p>
+        </div>
+
+        <label id="authNameWrap" class="hidden">
+          Nombre
+          <input id="authName" type="text" autocomplete="name" />
+        </label>
+
         <label>
-          Usuario
+          Email
           <input id="authUser" type="text" autocomplete="username" required />
         </label>
+
         <label>
           Password
           <input id="authPass" type="password" autocomplete="current-password" required />
         </label>
-        <p id="authError" class="auth-error hidden">Credenciales invalidas.</p>
+
+        <p id="authError" class="auth-error hidden">No se pudo iniciar sesion.</p>
         <div class="auth-actions">
           <button id="authSubmit" type="submit">Entrar</button>
         </div>
@@ -97,8 +179,71 @@
         </label>
         <p id="guestError" class="auth-error hidden">Completa todos los campos.</p>
         <div class="auth-actions">
-          <button id="guestCancel" type="button">Cancelar</button>
+          <button id="guestCancel" type="button" class="secondary-action">Cancelar</button>
           <button id="guestSubmit" type="submit">Agregar</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="managementModal" class="auth-modal hidden" role="dialog" aria-modal="true" aria-labelledby="managementTitle">
+      <div class="auth-card management-card">
+        <div class="modal-head">
+          <div class="auth-copy">
+            <h2 id="managementTitle">Gestion del evento</h2>
+            <p id="eventSummary">Selecciona un evento para configurarlo.</p>
+          </div>
+          <button id="managementClose" type="button" class="secondary-action">Cerrar</button>
+        </div>
+
+        <form id="eventSettingsForm" class="stack-form">
+          <label>
+            Nombre del evento
+            <input id="eventNameInput" type="text" placeholder="Nombre del evento" required />
+          </label>
+          <button id="saveEventSettingsBtn" type="submit">Guardar nombre</button>
+        </form>
+
+        <div class="config-split">
+          <form id="addTableForm" class="stack-form">
+            <label>
+              Capacidad de la nueva mesa
+              <input id="newTableCapacity" type="number" min="1" step="1" value="10" required />
+            </label>
+            <button id="addTableBtn" type="submit">Agregar mesa</button>
+          </form>
+
+          <form id="bulkTablesForm" class="stack-form">
+            <label>
+              Cantidad de mesas
+              <input id="bulkTableCount" type="number" min="1" step="1" value="3" required />
+            </label>
+            <label>
+              Capacidad por mesa
+              <input id="bulkTableCapacity" type="number" min="1" step="1" value="10" required />
+            </label>
+            <button id="bulkAddTablesBtn" type="submit">Agregar bloque</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div id="createEventModal" class="auth-modal hidden" role="dialog" aria-modal="true" aria-labelledby="createEventTitle">
+      <form id="createEventForm" class="auth-card">
+        <div class="modal-head">
+          <div class="auth-copy">
+            <h2 id="createEventTitle">Crear evento</h2>
+            <p>Crea un evento nuevo para cargar invitados y definir mesas por separado.</p>
+          </div>
+          <button id="createEventClose" type="button" class="secondary-action">Cerrar</button>
+        </div>
+
+        <label>
+          Nombre del evento
+          <input id="newEventName" type="text" placeholder="Ej. Casamiento Sharon y Ariel" required />
+        </label>
+
+        <div class="auth-actions">
+          <button id="createEventBtn" type="submit">Crear evento</button>
         </div>
       </form>
     </div>
