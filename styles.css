@@ -311,11 +311,10 @@ label {
 
 .event-item {
   display: grid;
-  gap: 10px;
-  padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #fff;
+  overflow: hidden;
 }
 
 .event-item.active {
@@ -325,14 +324,27 @@ label {
 
 .event-item-head {
   display: grid;
-  gap: 3px;
+  width: 100%;
+  padding: 12px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
 }
 
 .event-item-head strong {
   font-size: 0.96rem;
 }
 
-.event-item-head small {
+.event-item-body {
+  display: grid;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.event-item-body small {
   color: var(--muted);
   font-size: 0.82rem;
 }

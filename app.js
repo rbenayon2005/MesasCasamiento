@@ -32,6 +32,7 @@ const state = {
   authMode: "login",
   events: [],
   currentEventId: "",
+  expandedEventId: "",
 };
 
 const refs = {
@@ -191,6 +192,7 @@ function clearSession() {
   state.session.user = null;
   state.events = [];
   state.currentEventId = "";
+  state.expandedEventId = "";
   clearRemoteState();
   resetLocalEventState();
   saveSessionToStorage();
@@ -342,6 +344,10 @@ async function refreshEvents() {
   const exists = state.events.some((event) => event.id === state.currentEventId);
   if (!exists) {
     state.currentEventId = state.events[0]?.id || "";
+  }
+  const expandedExists = state.events.some((event) => event.id === state.expandedEventId);
+  if (!expandedExists) {
+    state.expandedEventId = "";
   }
   saveSessionToStorage();
   renderAccountPanel();
@@ -543,6 +549,9 @@ async function deleteEventById(eventId) {
   });
 
   state.events = Array.isArray(response?.events) ? response.events : [];
+  if (state.expandedEventId === eventId) {
+    state.expandedEventId = "";
+  }
   if (state.currentEventId === eventId) {
     clearRemoteState();
     state.currentEventId = state.events[0]?.id || "";
@@ -577,31 +586,53 @@ function renderEventsPanel() {
 
   refs.eventList.className = "event-list";
   state.events.forEach((event) => {
+    const isExpanded = event.id === state.expandedEventId;
     const card = document.createElement("div");
-    card.className = `event-item${event.id === state.currentEventId ? " active" : ""}`;
+    card.className = `event-item${isExpanded ? " active" : ""}`;
     card.innerHTML = `
-      <div class="event-item-head">
+      <button type="button" class="event-item-head" aria-expanded="${isExpanded}">
         <strong>${event.name}</strong>
-        <small>${event.tableCount} mesas · ${event.guestCount} invitados</small>
-      </div>
-      <div class="event-item-actions">
-        <button type="button" class="event-manage-btn">Gestionar</button>
-        <button type="button" class="event-delete-btn">Borrar</button>
-      </div>
+      </button>
+      ${
+        isExpanded
+          ? `<div class="event-item-body">
+              <small>${event.tableCount} mesas · ${event.guestCount} invitados</small>
+              <div class="event-item-actions">
+                <button type="button" class="event-manage-btn">Gestionar</button>
+                <button type="button" class="event-delete-btn">Borrar</button>
+              </div>
+            </div>`
+          : ""
+      }
     `;
+    const headBtn = card.querySelector(".event-item-head");
     const manageBtn = card.querySelector(".event-manage-btn");
     const deleteBtn = card.querySelector(".event-delete-btn");
-    manageBtn.addEventListener("click", async () => {
-      await selectEvent(event.id);
-      openManagementModal();
-    });
-    deleteBtn.addEventListener("click", async () => {
-      try {
-        await deleteEventById(event.id);
-      } catch (err) {
-        showToast(parseApiError(err, "No se pudo borrar el evento."));
+    headBtn.addEventListener("click", async () => {
+      state.expandedEventId = event.id;
+      if (event.id === state.currentEventId) {
+        renderEventsPanel();
+        return;
       }
+      await selectEvent(event.id);
     });
+    if (manageBtn) {
+      manageBtn.addEventListener("click", async () => {
+        await selectEvent(event.id);
+        state.expandedEventId = event.id;
+        renderEventsPanel();
+        openManagementModal();
+      });
+    }
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", async () => {
+        try {
+          await deleteEventById(event.id);
+        } catch (err) {
+          showToast(parseApiError(err, "No se pudo borrar el evento."));
+        }
+      });
+    }
     refs.eventList.appendChild(card);
   });
 }

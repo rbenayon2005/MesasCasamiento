@@ -2,7 +2,7 @@
   "explorer.excludeGitIgnore": false,
   "files.exclude": {
     "**/node_modules": true,
-    "**/.wrangler": true,
+    "**/.wrangler": false,
     "**/.DS_Store": true,
     "Invitados Sharon y Ariel.xlsx": true,
     "mesas_asignacion.csv": true
