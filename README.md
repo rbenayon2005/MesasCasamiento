@@ -11,7 +11,7 @@ La app ahora trabaja con:
 - persistencia por evento en Cloudflare Pages Functions + D1
 - gestion de mesas con distintas capacidades
 - importacion de invitados desde Excel
-- importacion/exportacion de asignaciones por CSV
+- importacion/exportacion de asignaciones por Excel
 
 ## Reglas de UX
 
@@ -109,6 +109,6 @@ El repo ya ignora:
 - `node_modules/`
 - `.wrangler/`
 - `Invitados Sharon y Ariel.xlsx`
-- `mesas_asignacion.csv`
+- `mesas_asignaciones.xlsx`
 
 Esos archivos pueden existir localmente, pero no deben subirse al repo.

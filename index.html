@@ -30,18 +30,13 @@
           <span class="eyebrow">Acciones</span>
           <div class="actions-grid">
             <label class="file-input action-tile">
-              <input id="excelFile" type="file" accept=".xlsx,.xls" />
-              <span>Cargar Excel</span>
+              <input id="assignmentFile" type="file" accept=".xlsx,.xls" />
+              <span>Cargar Excel asignacion</span>
             </label>
-              <label class="file-input action-tile">
-                <input id="csvFile" type="file" accept=".csv" />
-                <span>Cargar CSV asignacion</span>
-              </label>
-              <button id="openCreateEventBtn" type="button" class="action-tile">Crear evento</button>
-              <button id="addGuestBtn" type="button" class="action-tile">Agregar invitado</button>
-              <button id="exportBtn" type="button" class="action-tile">Exportar CSV</button>
-            </div>
-          </section>
+            <button id="exportBtn" type="button" class="action-tile">Exportar Excel asignaciones</button>
+            <button id="addGuestBtn" type="button" class="action-tile">Agregar invitado</button>
+          </div>
+        </section>
 
         <section class="panel rail-panel">
           <div class="section-head">
@@ -49,7 +44,10 @@
               <span class="eyebrow">Tus eventos</span>
               <h2>Eventos</h2>
             </div>
-            <span id="eventCountBadge" class="inline-note">0</span>
+            <div class="event-head-actions">
+              <span id="eventCountBadge" class="inline-note">0</span>
+              <button id="openCreateEventBtn" type="button" class="icon-button" aria-label="Agregar evento" title="Agregar evento">+</button>
+            </div>
           </div>
           <div id="eventList" class="event-list empty-state">Todavia no creaste eventos.</div>
         </section>
@@ -246,6 +244,20 @@
           <button id="createEventBtn" type="submit">Crear evento</button>
         </div>
       </form>
+    </div>
+
+    <div id="importConfirmModal" class="auth-modal hidden" role="dialog" aria-modal="true" aria-labelledby="importConfirmTitle">
+      <div class="auth-card">
+        <div class="auth-copy">
+          <h2 id="importConfirmTitle">Confirmar carga</h2>
+          <p id="importConfirmMessage">Los invitados se van a cargar en el evento activo.</p>
+        </div>
+
+        <div class="auth-actions">
+          <button id="importCancelBtn" type="button" class="secondary-action">Cancelar</button>
+          <button id="importConfirmBtn" type="button">Cargar Excel</button>
+        </div>
+      </div>
     </div>
 
     <div id="toast" class="toast hidden"></div>

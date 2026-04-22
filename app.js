@@ -39,7 +39,7 @@ const refs = {
   appTitle: document.getElementById("appTitle"),
   topbarEventMeta: document.getElementById("topbarEventMeta"),
   fileInput: document.getElementById("excelFile"),
-  csvInput: document.getElementById("csvFile"),
+  assignmentFileInput: document.getElementById("assignmentFile"),
   openCreateEventBtn: document.getElementById("openCreateEventBtn"),
   addGuestBtn: document.getElementById("addGuestBtn"),
   exportBtn: document.getElementById("exportBtn"),
@@ -70,6 +70,10 @@ const refs = {
   createEventForm: document.getElementById("createEventForm"),
   createEventModal: document.getElementById("createEventModal"),
   createEventClose: document.getElementById("createEventClose"),
+  importConfirmModal: document.getElementById("importConfirmModal"),
+  importConfirmMessage: document.getElementById("importConfirmMessage"),
+  importCancelBtn: document.getElementById("importCancelBtn"),
+  importConfirmBtn: document.getElementById("importConfirmBtn"),
   newEventName: document.getElementById("newEventName"),
   eventSettingsForm: document.getElementById("eventSettingsForm"),
   eventNameInput: document.getElementById("eventNameInput"),
@@ -157,6 +161,32 @@ function openCreateEventModal() {
 
 function closeCreateEventModal() {
   refs.createEventModal.classList.add("hidden");
+}
+
+function askImportConfirmation(fileName) {
+  const event = currentEvent();
+  if (!event) return Promise.resolve(false);
+  refs.importConfirmMessage.textContent = `El archivo "${fileName}" va a cargar o actualizar invitados y mesas en el evento activo: "${event.name}".`;
+  refs.importConfirmModal.classList.remove("hidden");
+  refs.importConfirmBtn.focus();
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      refs.importConfirmModal.classList.add("hidden");
+      refs.importCancelBtn.removeEventListener("click", onCancel);
+      refs.importConfirmBtn.removeEventListener("click", onConfirm);
+    };
+    const onCancel = () => {
+      cleanup();
+      resolve(false);
+    };
+    const onConfirm = () => {
+      cleanup();
+      resolve(true);
+    };
+    refs.importCancelBtn.addEventListener("click", onCancel);
+    refs.importConfirmBtn.addEventListener("click", onConfirm);
+  });
 }
 
 function loadSessionFromStorage() {
@@ -656,12 +686,12 @@ function renderEventConfig() {
 
 function updateActionAvailability() {
   const hasEvent = Boolean(state.currentEventId);
-  refs.fileInput.disabled = !hasEvent;
-  refs.csvInput.disabled = !hasEvent;
+  if (refs.fileInput) refs.fileInput.disabled = !hasEvent;
+  refs.assignmentFileInput.disabled = !hasEvent;
   refs.addGuestBtn.disabled = !hasEvent;
   refs.exportBtn.disabled = !hasEvent || !state.guests.length;
-  refs.fileInput.closest(".file-input").classList.toggle("disabled", !hasEvent);
-  refs.csvInput.closest(".file-input").classList.toggle("disabled", !hasEvent);
+  refs.fileInput?.closest(".file-input")?.classList.toggle("disabled", !hasEvent);
+  refs.assignmentFileInput.closest(".file-input").classList.toggle("disabled", !hasEvent);
 }
 
 function addGuest({ name, gender, confirmed, sourceRow, initialTable }) {
@@ -1334,7 +1364,7 @@ function render() {
   updateActionAvailability();
 }
 
-function exportCsv() {
+function buildAssignmentRows() {
   const rows = [["TipoRegistro", "Nombre", "Genero", "Confirmado", "Mesa", "Fila Excel", "Capacidad"]];
   state.guests
     .slice()
@@ -1358,13 +1388,14 @@ function exportCsv() {
       rows.push(["MESA", "", "", "", table.number, "", table.capacity]);
     });
 
-  const csv = rows.map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "mesas_asignacion.csv";
-  link.click();
-  URL.revokeObjectURL(link.href);
+  return rows;
+}
+
+function exportAssignmentsExcel() {
+  const ws = XLSX.utils.aoa_to_sheet(buildAssignmentRows());
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Asignaciones");
+  XLSX.writeFile(wb, "mesas_asignaciones.xlsx");
 }
 
 function normalizeHeaderKey(key) {
@@ -1384,20 +1415,10 @@ function getRowValue(row, aliases) {
   return "";
 }
 
-function readAssignmentRows(text) {
-  const parseWith = (options = {}) => {
-    const wb = XLSX.read(text, { type: "string", ...options });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    return XLSX.utils.sheet_to_json(ws, { defval: "" });
-  };
-  const rows = parseWith();
-  if (!rows.length) return rows;
-  const firstKeys = Object.keys(rows[0]);
-  if (firstKeys.length === 1 && /[;\t]/.test(firstKeys[0])) {
-    if (firstKeys[0].includes(";")) return parseWith({ FS: ";" });
-    if (firstKeys[0].includes("\t")) return parseWith({ FS: "\t" });
-  }
-  return rows;
+function readAssignmentRowsFromWorkbook(arrayBuffer) {
+  const wb = XLSX.read(arrayBuffer, { type: "array" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(ws, { defval: "" });
 }
 
 function toNumberOrNull(value) {
@@ -1421,32 +1442,48 @@ function isConfirmedValue(value) {
   return ["ok", "si", "sí", "true", "1", "x", "confirmado"].includes(raw);
 }
 
-function bootstrapGuestsFromAssignmentRows(rows) {
-  state.guests = [];
+function upsertGuestsFromAssignmentRows(rows) {
+  let changedCount = 0;
   rows.forEach((row) => {
     const tipo = normalize(getRowValue(row, ["tiporegistro", "tipo"])).toUpperCase();
     if (tipo && tipo !== "INVITADO") return;
     const genero = normalizeGender(getRowValue(row, ["genero"]));
     const nombre = normalize(getRowValue(row, ["nombre"]));
     if (!nombre || !genero) return;
-    addGuest({
-      name: nombre,
-      gender: genero,
-      confirmed: isConfirmedValue(getRowValue(row, ["confirmado"])),
-      sourceRow: toNumberOrNull(getRowValue(row, ["filaexcel", "fila"])),
-      initialTable: null,
-    });
+    const sourceRow = toNumberOrNull(getRowValue(row, ["filaexcel", "fila"]));
+    const confirmed = isConfirmedValue(getRowValue(row, ["confirmado"]));
+    let guest = null;
+    if (sourceRow !== null) {
+      guest = state.guests.find((candidate) => candidate.sourceRow === sourceRow && candidate.gender === genero) || null;
+    }
+    if (!guest) {
+      guest =
+        state.guests.find((candidate) => candidate.name.toLowerCase() === nombre.toLowerCase() && candidate.gender === genero) ||
+        null;
+    }
+    if (guest) {
+      guest.name = nombre;
+      guest.confirmed = confirmed;
+      guest.sourceRow = sourceRow;
+    } else {
+      addGuest({
+        name: nombre,
+        gender: genero,
+        confirmed,
+        sourceRow,
+        initialTable: null,
+      });
+    }
+    changedCount += 1;
   });
+  return changedCount;
 }
 
-function importAssignmentCsv(text) {
-  const rows = readAssignmentRows(text);
-  if (!rows.length) throw new Error("CSV vacio o invalido.");
+function importAssignmentRows(rows) {
+  if (!rows.length) throw new Error("Excel vacio o invalido.");
+  const importedGuestCount = upsertGuestsFromAssignmentRows(rows);
   if (!state.guests.length) {
-    bootstrapGuestsFromAssignmentRows(rows);
-    if (!state.guests.length) {
-      throw new Error("CSV invalido: no se pudieron leer invitados.");
-    }
+    throw new Error("Excel invalido: no se pudieron leer invitados.");
   }
 
   state.guests.forEach((guest) => {
@@ -1515,10 +1552,10 @@ function importAssignmentCsv(text) {
   syncTableOrder();
   render();
   scheduleRemoteSave();
-  showToast(`CSV cargado: ${assignedCount} asignaciones aplicadas.`);
+  showToast(`Excel cargado: ${importedGuestCount} invitados, ${assignedCount} asignaciones.`);
 }
 
-refs.fileInput.addEventListener("change", async (event) => {
+refs.fileInput?.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
   try {
@@ -1535,14 +1572,16 @@ refs.fileInput.addEventListener("change", async (event) => {
   }
 });
 
-refs.csvInput.addEventListener("change", async (event) => {
+refs.assignmentFileInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const text = await file.text();
-    importAssignmentCsv(text);
+    const confirmed = await askImportConfirmation(file.name);
+    if (!confirmed) return;
+    const data = await file.arrayBuffer();
+    importAssignmentRows(readAssignmentRowsFromWorkbook(data));
   } catch (err) {
-    showToast(err.message || "Error leyendo CSV.");
+    showToast(err.message || "Error leyendo Excel.");
   } finally {
     event.target.value = "";
   }
@@ -1554,7 +1593,7 @@ refs.addGuestBtn.addEventListener("click", () => {
 
 refs.exportBtn.addEventListener("click", () => {
   if (!state.guests.length) return showToast("No hay datos para exportar.");
-  exportCsv();
+  exportAssignmentsExcel();
 });
 
 refs.searchInput.addEventListener("input", (event) => {
