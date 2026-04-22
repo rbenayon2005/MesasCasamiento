@@ -621,7 +621,7 @@ function renderEventsPanel() {
   syncExpandedEventWithCurrent();
   refs.eventList.className = "event-list";
   state.events.forEach((event) => {
-    const isExpanded = event.id === state.expandedEventId;
+    const isExpanded = event.id === state.currentEventId;
     const card = document.createElement("div");
     card.className = `event-item${isExpanded ? " active" : ""}`;
     card.innerHTML = `
