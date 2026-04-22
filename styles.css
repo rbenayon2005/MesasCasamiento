@@ -312,11 +312,42 @@ label {
   width: min(860px, 100%);
 }
 
+.excel-help-card {
+  width: min(760px, 100%);
+}
+
 .modal-head {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
+}
+
+.excel-help-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.excel-help-grid div,
+.excel-help-note {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.excel-help-grid strong,
+.excel-help-note strong {
+  font-size: 0.92rem;
+}
+
+.excel-help-grid span,
+.excel-help-note span {
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.35;
 }
 
 .stack-form {
@@ -435,6 +466,7 @@ label {
 }
 
 .table-card {
+  position: relative;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -521,6 +553,17 @@ label {
   box-shadow: inset 0 0 0 2px var(--accent);
 }
 
+.table-card.guest-drop-allowed {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 2px rgba(32, 110, 93, 0.32);
+}
+
+.table-card.guest-drop-blocked {
+  border-color: var(--bad);
+  background: #fff7f7;
+  box-shadow: inset 0 0 0 2px rgba(167, 55, 55, 0.28);
+}
+
 .table-card.table-dragging {
   opacity: 0.65;
 }
@@ -581,6 +624,7 @@ label {
 }
 
 .guest-list {
+  position: relative;
   flex: 1;
   border: 1px dashed var(--border);
   border-radius: 8px;
@@ -592,6 +636,33 @@ label {
 .guest-list.drag-over {
   border-color: var(--accent);
   background: #f4faf7;
+}
+
+.guest-list.drag-over::after {
+  content: "+";
+  position: absolute;
+  inset: 8px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px dashed rgba(32, 110, 93, 0.45);
+  background: rgba(244, 250, 247, 0.86);
+  color: var(--accent);
+  font-size: 2rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.guest-list.drag-blocked {
+  border-color: var(--bad);
+  background: #fff7f7;
+}
+
+.guest-list.drag-blocked::after {
+  content: "\2298";
+  border-color: rgba(167, 55, 55, 0.48);
+  background: rgba(255, 247, 247, 0.9);
+  color: var(--bad);
 }
 
 .guest {

@@ -35,6 +35,7 @@
             </label>
             <button id="exportBtn" type="button" class="action-tile">Exportar Excel asignaciones</button>
             <button id="addGuestBtn" type="button" class="action-tile">Agregar invitado</button>
+            <button id="excelHelpBtn" type="button" class="action-tile">Formato Excel</button>
           </div>
         </section>
 
@@ -256,6 +257,58 @@
         <div class="auth-actions">
           <button id="importCancelBtn" type="button" class="secondary-action">Cancelar</button>
           <button id="importConfirmBtn" type="button">Cargar Excel</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="excelHelpModal" class="auth-modal hidden" role="dialog" aria-modal="true" aria-labelledby="excelHelpTitle">
+      <div class="auth-card excel-help-card">
+        <div class="modal-head">
+          <div class="auth-copy">
+            <h2 id="excelHelpTitle">Formato del Excel</h2>
+            <p>Usa estos encabezados para cargar invitados en bloque desde el boton Cargar Excel asignacion.</p>
+          </div>
+          <button id="excelHelpClose" type="button" class="secondary-action">Cerrar</button>
+        </div>
+
+        <div class="excel-help-grid" aria-label="Columnas del Excel">
+          <div>
+            <strong>TipoRegistro</strong>
+            <span>INVITADO para personas. MESA para crear o actualizar mesas.</span>
+          </div>
+          <div>
+            <strong>Nombre</strong>
+            <span>Nombre y apellido completos del invitado.</span>
+          </div>
+          <div>
+            <strong>Genero</strong>
+            <span>H para hombre, M para mujer. Tambien acepta Hombre o Mujer.</span>
+          </div>
+          <div>
+            <strong>Confirmado</strong>
+            <span>Ok, Si, X, 1 o Confirmado cuentan como confirmado. Vacio queda sin confirmar.</span>
+          </div>
+          <div>
+            <strong>Mesa</strong>
+            <span>Numero de mesa. Si queda vacio, el invitado entra como Sin asignar.</span>
+          </div>
+          <div>
+            <strong>Fila Excel</strong>
+            <span>Opcional. Sirve para identificar invitados al reimportar cambios.</span>
+          </div>
+          <div>
+            <strong>Capacidad</strong>
+            <span>Solo se usa en filas MESA. Si queda vacio, la capacidad sera 10.</span>
+          </div>
+        </div>
+
+        <div class="excel-help-note">
+          <strong>Para crear mesas:</strong>
+          <span>Agrega una fila con TipoRegistro MESA, completa Mesa y Capacidad, y deja el resto vacio.</span>
+        </div>
+
+        <div class="auth-actions">
+          <button id="downloadTemplateBtn" type="button">Descargar template vacio</button>
         </div>
       </div>
     </div>

@@ -43,6 +43,7 @@ const refs = {
   openCreateEventBtn: document.getElementById("openCreateEventBtn"),
   addGuestBtn: document.getElementById("addGuestBtn"),
   exportBtn: document.getElementById("exportBtn"),
+  excelHelpBtn: document.getElementById("excelHelpBtn"),
   searchInput: document.getElementById("searchInput"),
   genderFilter: document.getElementById("genderFilter"),
   unassignedList: document.getElementById("unassignedList"),
@@ -74,6 +75,9 @@ const refs = {
   importConfirmMessage: document.getElementById("importConfirmMessage"),
   importCancelBtn: document.getElementById("importCancelBtn"),
   importConfirmBtn: document.getElementById("importConfirmBtn"),
+  excelHelpModal: document.getElementById("excelHelpModal"),
+  excelHelpClose: document.getElementById("excelHelpClose"),
+  downloadTemplateBtn: document.getElementById("downloadTemplateBtn"),
   newEventName: document.getElementById("newEventName"),
   eventSettingsForm: document.getElementById("eventSettingsForm"),
   eventNameInput: document.getElementById("eventNameInput"),
@@ -850,13 +854,24 @@ function rebuildTablesFromCurrentAssignments() {
   syncTableOrder();
 }
 
-function fitsTable(guest, table) {
-  if (!table) return true;
-  const current = state.guests.filter((candidate) => candidate.tableId === table.id).length;
+function canDropGuestOnTable(guest, tableId) {
+  if (!tableId) return true;
+  const table = state.tables.find((item) => item.id === tableId);
+  if (!guest || !table) return false;
+  const current = state.guests.filter((candidate) => candidate.tableId === table.id && candidate.id !== guest.id).length;
   if (current >= table.capacity) return false;
   if (table.type === "men" && guest.gender !== "H") return false;
   if (table.type === "women" && guest.gender !== "M") return false;
   return true;
+}
+
+function clearGuestDropFeedback() {
+  document.querySelectorAll(".dropzone.drag-over, .dropzone.drag-allowed, .dropzone.drag-blocked").forEach((zone) => {
+    zone.classList.remove("drag-over", "drag-allowed", "drag-blocked");
+  });
+  document.querySelectorAll(".table-card.guest-drop-allowed, .table-card.guest-drop-blocked").forEach((card) => {
+    card.classList.remove("guest-drop-allowed", "guest-drop-blocked");
+  });
 }
 
 function moveGuest(guestId, tableId) {
@@ -864,7 +879,7 @@ function moveGuest(guestId, tableId) {
   const table = state.tables.find((item) => item.id === tableId);
   if (!guest) return;
   if (tableId && !table) return;
-  if (table && !fitsTable(guest, table)) {
+  if (!canDropGuestOnTable(guest, tableId || null)) {
     showToast("No entra por capacidad o restriccion de genero.");
     return;
   }
@@ -1129,6 +1144,7 @@ function guestCard(guest, options = {}) {
   el.addEventListener("dragend", () => {
     state.dragGuestId = null;
     state.dragType = null;
+    clearGuestDropFeedback();
   });
   if (allowEdit) {
     const editBtn = el.querySelector(".guest-edit");
@@ -1158,18 +1174,35 @@ function guestCard(guest, options = {}) {
 }
 
 function applyDropzoneBehavior(element, tableId) {
+  const card = element.closest(".table-card");
+
+  function setGuestDropFeedback(allowed) {
+    element.classList.toggle("drag-allowed", allowed);
+    element.classList.toggle("drag-blocked", !allowed);
+    card?.classList.toggle("guest-drop-allowed", allowed);
+    card?.classList.toggle("guest-drop-blocked", !allowed);
+  }
+
   element.addEventListener("dragover", (event) => {
+    if (state.dragType !== "guest" || !state.dragGuestId) return;
     event.preventDefault();
+    const guest = state.guests.find((item) => item.id === state.dragGuestId);
+    const allowed = canDropGuestOnTable(guest, tableId || null);
+    event.dataTransfer.dropEffect = allowed ? "move" : "none";
     element.classList.add("drag-over");
+    setGuestDropFeedback(allowed);
   });
-  element.addEventListener("dragleave", () => element.classList.remove("drag-over"));
+  element.addEventListener("dragleave", () => {
+    element.classList.remove("drag-over", "drag-allowed", "drag-blocked");
+    card?.classList.remove("guest-drop-allowed", "guest-drop-blocked");
+  });
   element.addEventListener("drop", (event) => {
     event.preventDefault();
-    element.classList.remove("drag-over");
     if (state.dragType !== "guest" || !state.dragGuestId) return;
     moveGuest(state.dragGuestId, tableId || null);
     state.dragGuestId = null;
     state.dragType = null;
+    clearGuestDropFeedback();
   });
 }
 
@@ -1403,6 +1436,24 @@ function exportAssignmentsExcel() {
   XLSX.writeFile(wb, "mesas_asignaciones.xlsx");
 }
 
+function downloadEmptyExcelTemplate() {
+  const rows = [["TipoRegistro", "Nombre", "Genero", "Confirmado", "Mesa", "Fila Excel", "Capacidad"]];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [{ wch: 14 }, { wch: 28 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 12 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Asignaciones");
+  XLSX.writeFile(wb, "template_invitados_mesas.xlsx");
+}
+
+function openExcelHelp() {
+  refs.excelHelpModal.classList.remove("hidden");
+  refs.downloadTemplateBtn.focus();
+}
+
+function closeExcelHelp() {
+  refs.excelHelpModal.classList.add("hidden");
+}
+
 function normalizeHeaderKey(key) {
   return normalize(key)
     .replace(/^\ufeff/, "")
@@ -1600,6 +1651,10 @@ refs.exportBtn.addEventListener("click", () => {
   if (!state.guests.length) return showToast("No hay datos para exportar.");
   exportAssignmentsExcel();
 });
+
+refs.excelHelpBtn.addEventListener("click", openExcelHelp);
+refs.excelHelpClose.addEventListener("click", closeExcelHelp);
+refs.downloadTemplateBtn.addEventListener("click", downloadEmptyExcelTemplate);
 
 refs.searchInput.addEventListener("input", (event) => {
   state.filter.search = event.target.value.trim();
