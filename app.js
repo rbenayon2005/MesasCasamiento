@@ -135,6 +135,10 @@ function syncCurrentEventSummary() {
   event.guestCount = state.guests.length;
 }
 
+function syncExpandedEventWithCurrent() {
+  state.expandedEventId = state.currentEventId || "";
+}
+
 function showToast(message) {
   refs.toast.textContent = message;
   refs.toast.classList.remove("hidden");
@@ -375,10 +379,7 @@ async function refreshEvents() {
   if (!exists) {
     state.currentEventId = state.events[0]?.id || "";
   }
-  const expandedExists = state.events.some((event) => event.id === state.expandedEventId);
-  if (!expandedExists) {
-    state.expandedEventId = "";
-  }
+  syncExpandedEventWithCurrent();
   saveSessionToStorage();
   renderAccountPanel();
   renderEventsPanel();
@@ -521,6 +522,7 @@ async function selectEvent(eventId) {
   if (eventId === state.currentEventId) return;
   clearRemoteState();
   state.currentEventId = eventId || "";
+  syncExpandedEventWithCurrent();
   saveSessionToStorage();
   resetLocalEventState();
   render();
@@ -547,6 +549,7 @@ async function createEvent(name) {
   if (created?.id) {
     state.currentEventId = created.id;
   }
+  syncExpandedEventWithCurrent();
   saveSessionToStorage();
   renderEventsPanel();
   renderEventConfig();
@@ -585,6 +588,7 @@ async function deleteEventById(eventId) {
   if (state.currentEventId === eventId) {
     clearRemoteState();
     state.currentEventId = state.events[0]?.id || "";
+    syncExpandedEventWithCurrent();
     if (!state.currentEventId) {
       resetLocalEventState();
     }
@@ -614,6 +618,7 @@ function renderEventsPanel() {
     return;
   }
 
+  syncExpandedEventWithCurrent();
   refs.eventList.className = "event-list";
   state.events.forEach((event) => {
     const isExpanded = event.id === state.expandedEventId;
