@@ -74,6 +74,7 @@ button:disabled,
 
 input[type="text"],
 input[type="password"],
+input[type="date"],
 input[type="number"],
 select {
   width: 100%;
@@ -84,15 +85,32 @@ select {
   font: inherit;
   background: #fff;
   color: var(--ink);
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 input[type="text"]:focus,
 input[type="password"]:focus,
+input[type="date"]:focus,
 input[type="number"]:focus,
 select:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(32, 110, 93, 0.14);
+}
+
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+input[type="date"]:disabled::-webkit-calendar-picker-indicator {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 label {
@@ -355,6 +373,17 @@ label {
   gap: 10px;
 }
 
+.event-lock-message {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #ead1d1;
+  border-radius: 8px;
+  background: #fff7f7;
+  color: #8e3030;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
 .event-list {
   display: grid;
   gap: 10px;
@@ -407,6 +436,20 @@ label {
 .event-item-body small {
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.event-item-status {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #fff3de;
+  color: #8a5b14;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .event-item-actions {
@@ -673,6 +716,10 @@ label {
   margin-bottom: 7px;
   cursor: grab;
   font-size: 0.88rem;
+}
+
+.guest.read-only {
+  cursor: default;
 }
 
 .guest:last-child {

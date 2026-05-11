@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   name TEXT NOT NULL,
+  event_date TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 
@@ -80,6 +81,13 @@ async function recreateLegacyStateTables(db) {
   }
 }
 
+async function ensureEventsColumns(db) {
+  const hasEventDate = await tableHasColumn(db, "events", "event_date");
+  if (!hasEventDate) {
+    await db.prepare("ALTER TABLE events ADD COLUMN event_date TEXT NOT NULL DEFAULT ''").run();
+  }
+}
+
 function toIntBool(value) {
   return value ? 1 : 0;
 }
@@ -103,6 +111,38 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function todayInBuenosAires() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function normalizeEventDate(value) {
+  const normalized = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : "";
+}
+
+function isEventLocked(event) {
+  const eventDate = normalizeEventDate(event?.event_date);
+  if (!eventDate) return false;
+  return eventDate < todayInBuenosAires();
+}
+
+function serializeEvent(event, extra = {}) {
+  const eventDate = normalizeEventDate(event?.event_date);
+  return {
+    id: String(event.id),
+    name: String(event.name),
+    eventDate,
+    isLocked: isEventLocked(event),
+    createdAt: String(event.created_at),
+    ...extra,
+  };
+}
+
 function jsonClone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -116,6 +156,7 @@ export async function ensureSchema(db) {
   for (const statement of statements) {
     await db.prepare(statement).run();
   }
+  await ensureEventsColumns(db);
 }
 
 async function getUserByEmail(db, email) {
@@ -158,9 +199,15 @@ async function bumpEventRevision(db, eventId) {
 
 async function getOwnedEvent(db, userId, eventId) {
   return db
-    .prepare("SELECT id, user_id, name, created_at FROM events WHERE id = ? AND user_id = ?")
+    .prepare("SELECT id, user_id, name, event_date, created_at FROM events WHERE id = ? AND user_id = ?")
     .bind(eventId, userId)
     .first();
+}
+
+function assertEventEditable(event) {
+  if (isEventLocked(event)) {
+    throw new Error("El evento ya paso y quedo solo lectura.");
+  }
 }
 
 function normalizePayload(payload) {
@@ -323,7 +370,7 @@ export async function requireSessionUser(db, request) {
 export async function listUserEvents(db, userId) {
   await ensureSchema(db);
   const eventsResult = await db
-    .prepare("SELECT id, name, created_at FROM events WHERE user_id = ? ORDER BY created_at DESC")
+    .prepare("SELECT id, name, event_date, created_at FROM events WHERE user_id = ? ORDER BY created_at DESC")
     .bind(userId)
     .all();
 
@@ -334,13 +381,10 @@ export async function listUserEvents(db, userId) {
     const tableRow = await db.prepare("SELECT COUNT(*) AS count FROM tables WHERE event_id = ?").bind(event.id).first();
     const guestRow = await db.prepare("SELECT COUNT(*) AS count FROM guests WHERE event_id = ?").bind(event.id).first();
 
-    enriched.push({
-      id: String(event.id),
-      name: String(event.name),
-      createdAt: String(event.created_at),
+    enriched.push(serializeEvent(event, {
       tableCount: Number(tableRow?.count || 0),
       guestCount: Number(guestRow?.count || 0),
-    });
+    }));
   }
 
   return enriched;
@@ -349,15 +393,19 @@ export async function listUserEvents(db, userId) {
 export async function createEvent(db, userId, payload) {
   await ensureSchema(db);
   const name = String(payload?.name || "").trim();
+  const eventDate = normalizeEventDate(payload?.eventDate);
   if (!name) {
     throw new Error("El evento necesita un nombre.");
+  }
+  if (!eventDate) {
+    throw new Error("El evento necesita una fecha valida.");
   }
 
   const eventId = crypto.randomUUID();
   const createdAt = nowIso();
   await db
-    .prepare("INSERT INTO events (id, user_id, name, created_at) VALUES (?, ?, ?, ?)")
-    .bind(eventId, userId, name, createdAt)
+    .prepare("INSERT INTO events (id, user_id, name, event_date, created_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(eventId, userId, name, eventDate, createdAt)
     .run();
   await db
     .prepare("INSERT INTO event_meta (event_id, key, value) VALUES (?, 'revision', '0')")
@@ -367,6 +415,8 @@ export async function createEvent(db, userId, payload) {
   return {
     id: eventId,
     name,
+    eventDate,
+    isLocked: false,
     createdAt,
     tableCount: 0,
     guestCount: 0,
@@ -377,17 +427,19 @@ export async function updateEvent(db, userId, payload) {
   await ensureSchema(db);
   const eventId = String(payload?.eventId || "").trim();
   const name = String(payload?.name || "").trim();
-  if (!eventId || !name) {
-    throw new Error("Evento y nombre son requeridos.");
+  const eventDate = normalizeEventDate(payload?.eventDate);
+  if (!eventId || !name || !eventDate) {
+    throw new Error("Evento, nombre y fecha son requeridos.");
   }
 
   const event = await getOwnedEvent(db, userId, eventId);
   if (!event) {
     throw new Error("Evento no encontrado.");
   }
+  assertEventEditable(event);
 
-  await db.prepare("UPDATE events SET name = ? WHERE id = ?").bind(name, eventId).run();
-  return { ...jsonClone(event), name };
+  await db.prepare("UPDATE events SET name = ?, event_date = ? WHERE id = ?").bind(name, eventDate, eventId).run();
+  return serializeEvent({ ...jsonClone(event), name, event_date: eventDate });
 }
 
 export async function deleteEvent(db, userId, eventId) {
@@ -401,6 +453,7 @@ export async function deleteEvent(db, userId, eventId) {
   if (!event) {
     throw new Error("Evento no encontrado.");
   }
+  assertEventEditable(event);
 
   await db.prepare("DELETE FROM guests WHERE event_id = ?").bind(normalizedEventId).run();
   await db.prepare("DELETE FROM tables WHERE event_id = ?").bind(normalizedEventId).run();
@@ -433,6 +486,7 @@ export async function loadEventState(db, userId, eventId) {
   const guests = (guestsResult.results || []).map(toGuest);
 
   return {
+    event: serializeEvent(event),
     revision,
     guests,
     tables: tables.map(({ position, ...table }) => table),
@@ -446,6 +500,7 @@ export async function saveEventState(db, userId, eventId, payload) {
   if (!event) {
     throw new Error("Evento no encontrado.");
   }
+  assertEventEditable(event);
 
   const normalized = normalizePayload(payload);
   await db.prepare("DELETE FROM tables WHERE event_id = ?").bind(eventId).run();

@@ -8,10 +8,12 @@ La app ahora trabaja con:
 
 - registro e inicio de sesion por usuario
 - multiples eventos por usuario
+- fecha obligatoria por evento
 - persistencia por evento en Cloudflare Pages Functions + D1
 - gestion de mesas con distintas capacidades
 - importacion de invitados desde Excel
 - importacion/exportacion de asignaciones por Excel
+- bloqueo automatico de eventos vencidos en modo solo lectura
 
 ## Reglas de UX
 
@@ -27,9 +29,26 @@ Cada usuario puede:
 - crear varios eventos
 - ver su lista de eventos
 - entrar a un evento y configurar mesas
+- definir la fecha del evento al crearlo
 - agregar mesas individuales o en bloque
 - definir capacidades distintas por mesa
 - cargar invitados y asignarlos
+- seguir viendo y exportando un evento vencido, pero sin poder modificarlo
+
+## Reglas de evento
+
+- al crear un evento, `nombre` y `fecha del evento` son obligatorios
+- el campo de fecha usa el mismo estilo visual que el resto de los campos del formulario
+- mientras la fecha del evento no haya pasado, se puede editar nombre y fecha
+- una vez pasada la fecha del evento, el evento queda en `solo lectura`
+- en solo lectura se puede ver el evento y exportar el Excel de asignaciones
+- en solo lectura ya no se puede:
+  - cambiar nombre o fecha
+  - borrar el evento
+  - importar archivos
+  - agregar, editar o borrar invitados
+  - agregar, borrar, reordenar o editar mesas
+  - mover invitados entre mesas o asignarlos
 
 ## Estructura principal
 

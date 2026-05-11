@@ -199,7 +199,12 @@
             Nombre del evento
             <input id="eventNameInput" type="text" placeholder="Nombre del evento" required />
           </label>
-          <button id="saveEventSettingsBtn" type="submit">Guardar nombre</button>
+          <label>
+            Fecha del evento
+            <input id="eventDateInput" type="date" required />
+          </label>
+          <p id="eventLockMessage" class="event-lock-message hidden"></p>
+          <button id="saveEventSettingsBtn" type="submit">Guardar cambios</button>
         </form>
 
         <div class="config-split">
@@ -239,6 +244,10 @@
         <label>
           Nombre del evento
           <input id="newEventName" type="text" placeholder="Ej. Casamiento Sharon y Ariel" required />
+        </label>
+        <label>
+          Fecha del evento
+          <input id="newEventDate" type="date" required />
         </label>
 
         <div class="auth-actions">

@@ -79,9 +79,12 @@ const refs = {
   excelHelpClose: document.getElementById("excelHelpClose"),
   downloadTemplateBtn: document.getElementById("downloadTemplateBtn"),
   newEventName: document.getElementById("newEventName"),
+  newEventDate: document.getElementById("newEventDate"),
   eventSettingsForm: document.getElementById("eventSettingsForm"),
   eventNameInput: document.getElementById("eventNameInput"),
+  eventDateInput: document.getElementById("eventDateInput"),
   eventSummary: document.getElementById("eventSummary"),
+  eventLockMessage: document.getElementById("eventLockMessage"),
   addTableForm: document.getElementById("addTableForm"),
   newTableCapacity: document.getElementById("newTableCapacity"),
   bulkTablesForm: document.getElementById("bulkTablesForm"),
@@ -132,6 +135,35 @@ function currentEvent() {
   return state.events.find((event) => event.id === state.currentEventId) || null;
 }
 
+function isValidEventDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalize(value));
+}
+
+function isCurrentEventLocked() {
+  return !!currentEvent()?.isLocked;
+}
+
+function lockedEventMessage() {
+  const event = currentEvent();
+  if (!event?.eventDate) return "El evento ya paso y quedo solo lectura.";
+  return `El evento fue el ${event.eventDate} y ahora esta en solo lectura.`;
+}
+
+function requireEditableCurrentEvent() {
+  if (!state.currentEventId) {
+    showToast("Primero crea o selecciona un evento.");
+    return false;
+  }
+  if (!isCurrentEventLocked()) return true;
+  showToast(lockedEventMessage());
+  return false;
+}
+
+function syncEventRecord(patch) {
+  if (!patch?.id) return;
+  state.events = state.events.map((event) => (event.id === patch.id ? { ...event, ...patch } : event));
+}
+
 function syncCurrentEventSummary() {
   const event = currentEvent();
   if (!event) return;
@@ -163,6 +195,7 @@ function closeManagementModal() {
 
 function openCreateEventModal() {
   refs.newEventName.value = "";
+  refs.newEventDate.value = "";
   refs.createEventModal.classList.remove("hidden");
   refs.newEventName.focus();
 }
@@ -414,6 +447,9 @@ function serializeStateForRemote() {
 
 function applyRemoteSnapshot(snapshot) {
   if (!snapshot) return false;
+  if (snapshot.event?.id) {
+    syncEventRecord(snapshot.event);
+  }
   const guests = Array.isArray(snapshot.guests) ? snapshot.guests : [];
   const tables = Array.isArray(snapshot.tables) ? snapshot.tables : [];
 
@@ -537,10 +573,12 @@ async function selectEvent(eventId) {
 
 async function createEvent(name) {
   const eventName = normalize(name);
+  const eventDate = normalize(refs.newEventDate.value);
   if (!eventName) return;
+  if (!isValidEventDate(eventDate)) return showToast("Carga una fecha valida para el evento.");
   const response = await apiRequest("/api/events", {
     method: "POST",
-    body: JSON.stringify({ action: "create", name: eventName }),
+    body: JSON.stringify({ action: "create", name: eventName, eventDate }),
   });
   if (Array.isArray(response?.events)) {
     state.events = response.events;
@@ -549,6 +587,7 @@ async function createEvent(name) {
   }
   const created = response?.event || state.events[state.events.length - 1];
   refs.newEventName.value = "";
+  refs.newEventDate.value = "";
   closeCreateEventModal();
   if (created?.id) {
     state.currentEventId = created.id;
@@ -564,11 +603,14 @@ async function createEvent(name) {
 async function renameCurrentEvent(name) {
   const event = currentEvent();
   if (!event) return;
+  if (!requireEditableCurrentEvent()) return;
   const nextName = normalize(name);
+  const nextDate = normalize(refs.eventDateInput.value);
   if (!nextName) return showToast("El evento necesita un nombre.");
+  if (!isValidEventDate(nextDate)) return showToast("Carga una fecha valida para el evento.");
   const response = await apiRequest("/api/events", {
     method: "POST",
-    body: JSON.stringify({ action: "update", eventId: event.id, name: nextName }),
+    body: JSON.stringify({ action: "update", eventId: event.id, name: nextName, eventDate: nextDate }),
   });
   state.events = Array.isArray(response?.events) ? response.events : state.events;
   renderEventsPanel();
@@ -579,6 +621,10 @@ async function renameCurrentEvent(name) {
 async function deleteEventById(eventId) {
   const event = state.events.find((item) => item.id === eventId);
   if (!event) return;
+  if (event.isLocked) {
+    showToast(`El evento "${event.name}" quedo solo lectura y no se puede modificar.`);
+    return;
+  }
 
   const response = await apiRequest("/api/events", {
     method: "POST",
@@ -635,10 +681,11 @@ function renderEventsPanel() {
       ${
         isExpanded
           ? `<div class="event-item-body">
-              <small>${event.tableCount} mesas · ${event.guestCount} invitados</small>
+              <small>${event.tableCount} mesas · ${event.guestCount} invitados${event.eventDate ? ` · ${event.eventDate}` : ""}</small>
+              ${event.isLocked ? '<span class="event-item-status">Solo lectura</span>' : ""}
               <div class="event-item-actions">
                 <button type="button" class="event-manage-btn">Gestionar</button>
-                <button type="button" class="event-delete-btn">Borrar</button>
+                <button type="button" class="event-delete-btn" ${event.isLocked ? "disabled" : ""}>Borrar</button>
               </div>
             </div>`
           : ""
@@ -678,29 +725,50 @@ function renderEventsPanel() {
 
 function renderEventConfig() {
   const event = currentEvent();
-  refs.topbarEventMeta.textContent = event ? `${event.name} · ${state.tables.length} mesas` : "Sin evento seleccionado";
+  refs.topbarEventMeta.textContent = event
+    ? `${event.name}${event.eventDate ? ` · ${event.eventDate}` : ""} · ${state.tables.length} mesas`
+    : "Sin evento seleccionado";
   refs.appTitle.textContent = event ? `Organizador de Mesas · ${event.name}` : "Organizador de Mesas";
 
   if (!event) {
     refs.eventNameInput.value = "";
+    refs.eventDateInput.value = "";
     refs.eventSummary.textContent = "Selecciona un evento para configurarlo.";
+    refs.eventLockMessage.textContent = "";
+    refs.eventLockMessage.classList.add("hidden");
     closeManagementModal();
     return;
   }
 
   refs.eventNameInput.value = event.name;
+  refs.eventDateInput.value = event.eventDate || "";
   const capacityTotal = state.tables.reduce((sum, table) => sum + table.capacity, 0);
-  refs.eventSummary.textContent = `${state.tables.length} mesas configuradas · capacidad total ${capacityTotal} personas.`;
+  refs.eventSummary.textContent = `${state.tables.length} mesas configuradas · capacidad total ${capacityTotal} personas.${event.isLocked ? " Evento en solo lectura." : ""}`;
+  refs.eventLockMessage.textContent = event.isLocked
+    ? `${lockedEventMessage()} Se puede ver el evento y exportar asignaciones, pero no editarlo.`
+    : "";
+  refs.eventLockMessage.classList.toggle("hidden", !event.isLocked);
 }
 
 function updateActionAvailability() {
   const hasEvent = Boolean(state.currentEventId);
-  if (refs.fileInput) refs.fileInput.disabled = !hasEvent;
-  refs.assignmentFileInput.disabled = !hasEvent;
-  refs.addGuestBtn.disabled = !hasEvent;
+  const isLocked = isCurrentEventLocked();
+  const canEdit = hasEvent && !isLocked;
+  if (refs.fileInput) refs.fileInput.disabled = !canEdit;
+  refs.assignmentFileInput.disabled = !canEdit;
+  refs.addGuestBtn.disabled = !canEdit;
   refs.exportBtn.disabled = !hasEvent || !state.guests.length;
-  refs.fileInput?.closest(".file-input")?.classList.toggle("disabled", !hasEvent);
-  refs.assignmentFileInput.closest(".file-input").classList.toggle("disabled", !hasEvent);
+  refs.openCreateEventBtn.disabled = !state.session.user;
+  refs.eventNameInput.disabled = !canEdit;
+  refs.eventDateInput.disabled = !canEdit;
+  refs.newTableCapacity.disabled = !canEdit;
+  refs.bulkTableCount.disabled = !canEdit;
+  refs.bulkTableCapacity.disabled = !canEdit;
+  document.getElementById("saveEventSettingsBtn").disabled = !canEdit;
+  document.getElementById("addTableBtn").disabled = !canEdit;
+  document.getElementById("bulkAddTablesBtn").disabled = !canEdit;
+  refs.fileInput?.closest(".file-input")?.classList.toggle("disabled", !canEdit);
+  refs.assignmentFileInput.closest(".file-input").classList.toggle("disabled", !canEdit);
 }
 
 function addGuest({ name, gender, confirmed, sourceRow, initialTable }) {
@@ -810,6 +878,7 @@ function ensureTable(number, capacity = 10) {
 }
 
 function addTables(count, capacity) {
+  if (!requireEditableCurrentEvent()) return;
   const nextCount = Math.max(1, Math.trunc(Number(count) || 1));
   const nextCapacity = Math.max(1, Math.trunc(Number(capacity) || 10));
   const lastNumber = state.tables.length ? Math.max(...state.tables.map((table) => table.number)) : 0;
@@ -875,6 +944,7 @@ function clearGuestDropFeedback() {
 }
 
 function moveGuest(guestId, tableId) {
+  if (!requireEditableCurrentEvent()) return;
   const guest = state.guests.find((item) => item.id === guestId);
   const table = state.tables.find((item) => item.id === tableId);
   if (!guest) return;
@@ -889,6 +959,7 @@ function moveGuest(guestId, tableId) {
 }
 
 function deleteGuest(guestId) {
+  if (!requireEditableCurrentEvent()) return;
   const nextGuests = state.guests.filter((guest) => guest.id !== guestId);
   if (nextGuests.length === state.guests.length) return;
   state.guests = nextGuests;
@@ -898,6 +969,7 @@ function deleteGuest(guestId) {
 }
 
 function deleteTable(tableId) {
+  if (!requireEditableCurrentEvent()) return;
   const table = state.tables.find((item) => item.id === tableId);
   if (!table) return;
   const assigned = state.guests.filter((guest) => guest.tableId === tableId).length;
@@ -913,6 +985,7 @@ function deleteTable(tableId) {
 }
 
 function renameTableNumber(tableId, nextNumberRaw) {
+  if (!requireEditableCurrentEvent()) return false;
   const table = state.tables.find((item) => item.id === tableId);
   if (!table) return false;
   const nextNumber = Math.trunc(Number(nextNumberRaw));
@@ -943,6 +1016,7 @@ function renameTableNumber(tableId, nextNumberRaw) {
 }
 
 function updateTableSettings(tableId, payload) {
+  if (!requireEditableCurrentEvent()) return;
   const table = state.tables.find((item) => item.id === tableId);
   if (!table) return;
   const nextCapacity = Math.max(1, Math.trunc(Number(payload.capacity) || 0));
@@ -962,6 +1036,7 @@ function enableTableNumberInlineEdit(titleEl, tableId) {
 
   const startEdit = () => {
     if (editing) return;
+    if (!requireEditableCurrentEvent()) return;
     const table = state.tables.find((item) => item.id === tableId);
     if (!table) return;
     editing = true;
@@ -1075,7 +1150,7 @@ function askGuestData(initialData = null, options = {}) {
 }
 
 async function addGuestManually() {
-  if (!state.currentEventId) return showToast("Primero crea o selecciona un evento.");
+  if (!requireEditableCurrentEvent()) return;
   const data = await askGuestData({ confirmed: true }, { title: "Agregar invitado", submitLabel: "Agregar" });
   if (!data) return;
   addGuest({
@@ -1091,6 +1166,7 @@ async function addGuestManually() {
 }
 
 async function editGuest(guestId) {
+  if (!requireEditableCurrentEvent()) return;
   const guest = state.guests.find((item) => item.id === guestId);
   if (!guest) return;
   const data = await askGuestData(
@@ -1116,15 +1192,16 @@ function filteredGuests() {
 
 function guestCard(guest, options = {}) {
   const { allowDelete = false, allowEdit = true } = options;
+  const isLocked = isCurrentEventLocked();
   const el = document.createElement("div");
-  el.className = `guest ${guest.gender === "H" ? "male" : "female"}`;
-  el.draggable = true;
+  el.className = `guest ${guest.gender === "H" ? "male" : "female"}${isLocked ? " read-only" : ""}`;
+  el.draggable = !isLocked;
   el.dataset.guestId = guest.id;
   const meta = `${guest.gender === "H" ? "Hombre" : "Mujer"}${guest.confirmed ? "" : " · no confirmado"}`;
-  const editButton = allowEdit
+  const editButton = allowEdit && !isLocked
     ? '<button class="guest-edit" type="button" aria-label="Editar invitado" title="Editar invitado">Editar</button>'
     : "";
-  const removeButton = allowDelete
+  const removeButton = allowDelete && !isLocked
     ? '<button class="guest-remove" type="button" aria-label="Descartar invitado" title="Descartar invitado">Borrar</button>'
     : "";
   el.innerHTML = `
@@ -1184,6 +1261,7 @@ function applyDropzoneBehavior(element, tableId) {
   }
 
   element.addEventListener("dragover", (event) => {
+    if (isCurrentEventLocked()) return;
     if (state.dragType !== "guest" || !state.dragGuestId) return;
     event.preventDefault();
     const guest = state.guests.find((item) => item.id === state.dragGuestId);
@@ -1198,6 +1276,7 @@ function applyDropzoneBehavior(element, tableId) {
   });
   element.addEventListener("drop", (event) => {
     event.preventDefault();
+    if (isCurrentEventLocked()) return;
     if (state.dragType !== "guest" || !state.dragGuestId) return;
     moveGuest(state.dragGuestId, tableId || null);
     state.dragGuestId = null;
@@ -1219,8 +1298,9 @@ function moveTableBefore(draggedId, targetId) {
 }
 
 function applyTableReorderBehavior(card, tableId, handle) {
-  handle.draggable = true;
+  handle.draggable = !isCurrentEventLocked();
   handle.addEventListener("dragstart", () => {
+    if (isCurrentEventLocked()) return;
     state.dragTableId = tableId;
     state.dragType = "table";
     card.classList.add("table-dragging");
@@ -1231,6 +1311,7 @@ function applyTableReorderBehavior(card, tableId, handle) {
     card.classList.remove("table-dragging");
   });
   card.addEventListener("dragover", (event) => {
+    if (isCurrentEventLocked()) return;
     if (state.dragType !== "table") return;
     event.preventDefault();
     card.classList.add("table-drop-over");
@@ -1239,6 +1320,7 @@ function applyTableReorderBehavior(card, tableId, handle) {
     card.classList.remove("table-drop-over");
   });
   card.addEventListener("drop", (event) => {
+    if (isCurrentEventLocked()) return;
     if (state.dragType !== "table" || !state.dragTableId) return;
     event.preventDefault();
     card.classList.remove("table-drop-over");
@@ -1293,21 +1375,22 @@ function renderUnassigned(visibleGuests) {
 }
 
 function renderTableSettings(card, table) {
+  const isLocked = isCurrentEventLocked();
   const form = document.createElement("form");
   form.className = "table-settings";
   form.innerHTML = `
     <div class="table-settings-top">
       <label>
         Nombre
-        <input name="name" type="text" value="${table.name}" />
+        <input name="name" type="text" value="${table.name}" ${isLocked ? "disabled" : ""} />
       </label>
       <label>
         Capacidad
-        <input name="capacity" type="number" min="1" step="1" value="${table.capacity}" />
+        <input name="capacity" type="number" min="1" step="1" value="${table.capacity}" ${isLocked ? "disabled" : ""} />
       </label>
     </div>
     <div class="table-settings-actions">
-      <button type="submit" class="save-table-settings">Guardar mesa</button>
+      <button type="submit" class="save-table-settings" ${isLocked ? "disabled" : ""}>Guardar mesa</button>
     </div>
   `;
   form.addEventListener("submit", (event) => {
@@ -1359,8 +1442,8 @@ function renderTables(visibleGuests) {
         </strong>
         ${typePill}
         <div class="table-actions">
-          <button class="table-remove" type="button" aria-label="Eliminar mesa" title="Eliminar mesa">Eliminar</button>
-          <span class="table-drag-handle" title="Mover mesa en el layout">Mover</span>
+          <button class="table-remove" type="button" aria-label="Eliminar mesa" title="Eliminar mesa" ${currentEvent()?.isLocked ? "disabled" : ""}>Eliminar</button>
+          <span class="table-drag-handle" title="Mover mesa en el layout">${currentEvent()?.isLocked ? "Fija" : "Mover"}</span>
         </div>
       </div>
       <div class="table-meta">${count}/${table.capacity} · H:${menCount} · M:${womenCount}</div>
@@ -1536,6 +1619,7 @@ function upsertGuestsFromAssignmentRows(rows) {
 }
 
 function importAssignmentRows(rows) {
+  if (!requireEditableCurrentEvent()) return;
   if (!rows.length) throw new Error("Excel vacio o invalido.");
   const importedGuestCount = upsertGuestsFromAssignmentRows(rows);
   if (!state.guests.length) {
@@ -1614,6 +1698,10 @@ function importAssignmentRows(rows) {
 refs.fileInput?.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
+  if (!requireEditableCurrentEvent()) {
+    event.target.value = "";
+    return;
+  }
   try {
     const data = await file.arrayBuffer();
     parseWorkbook(data);
@@ -1631,6 +1719,10 @@ refs.fileInput?.addEventListener("change", async (event) => {
 refs.assignmentFileInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
+  if (!requireEditableCurrentEvent()) {
+    event.target.value = "";
+    return;
+  }
   try {
     const confirmed = await askImportConfirmation(file.name);
     if (!confirmed) return;
@@ -1702,14 +1794,14 @@ refs.eventSettingsForm.addEventListener("submit", async (event) => {
 
 refs.addTableForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  if (!state.currentEventId) return;
+  if (!requireEditableCurrentEvent()) return;
   addTables(1, refs.newTableCapacity.value);
   showToast("Mesa agregada.");
 });
 
 refs.bulkTablesForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  if (!state.currentEventId) return;
+  if (!requireEditableCurrentEvent()) return;
   addTables(refs.bulkTableCount.value, refs.bulkTableCapacity.value);
   showToast("Bloque de mesas agregado.");
 });

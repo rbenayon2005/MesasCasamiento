@@ -24,17 +24,30 @@ La aplicacion debe priorizar el flujo operativo real: entrar, elegir el evento, 
 - Cada evento debe tener al menos:
   - id unico
   - nombre
+  - fecha del evento
   - fecha de creacion
   - usuario propietario
 - Mostrar un panel lateral o seccion llamada "Tus eventos" con todos los eventos del usuario.
 - Mostrar la cantidad total de eventos.
 - Permitir crear un evento nuevo desde un modal o formulario dedicado.
-- Permitir renombrar el evento activo.
-- Permitir borrar un evento.
+- El alta de evento debe pedir nombre y fecha del evento.
+- El campo de fecha del evento debe mantener el mismo ancho, tipografia y estilo visual que el resto de los campos del formulario.
+- Permitir renombrar el evento activo mientras la fecha del evento no haya pasado.
+- Permitir cambiar la fecha del evento activo mientras la fecha del evento no haya pasado.
+- Permitir borrar un evento mientras la fecha del evento no haya pasado.
 - Al ingresar a la aplicacion, si el usuario ya tiene eventos, debe abrirse automaticamente el ultimo evento usado o, si no existe, el primer evento disponible.
 - El evento activo debe quedar visualmente abierto/destacado en el panel "Tus eventos".
 - El titulo principal debe indicar claramente el evento activo, por ejemplo: "Organizador de Mesas - Nombre del evento".
 - Si se crea un evento nuevo, ese evento debe pasar a ser el evento activo inmediatamente y debe quedar abierto en "Tus eventos".
+- Cuando la fecha del evento ya paso, el evento debe quedar en modo solo lectura.
+- En modo solo lectura se puede ver el evento y exportar las asignaciones a Excel.
+- En modo solo lectura ya no se puede:
+  - cambiar nombre ni fecha
+  - borrar el evento
+  - importar archivos
+  - agregar, editar o borrar invitados
+  - agregar, borrar, reordenar o editar mesas
+  - mover invitados de mesa o asignarlos
 
 ### Mesas
 
@@ -143,6 +156,7 @@ events
 - id
 - user_id
 - name
+- event_date
 - created_at
 
 event_meta
